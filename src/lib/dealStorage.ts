@@ -39,7 +39,7 @@ const migrateDealData = (deals: Deal[]): Deal[] => {
   let migrationCount = 0;
   
   const migratedDeals = deals.map(deal => {
-    // @ts-ignore - "Negotiation" is no longer a valid stage type, but may exist in old data
+    // @ts-expect-error "Negotiation" is no longer a valid stage type, but may exist in old data
     if (deal.stage === 'Negotiation') {
       migrationCount++;
       console.log(`🔄 Migrating deal "${deal.clientName}" from Negotiation to Proposal stage`);
