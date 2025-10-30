@@ -529,7 +529,8 @@ export default function LeaseAnalyzerApp({
           proposals: demoProposals() 
         };
         setAnalyses([demoAnalysis]);
-        setDeals(storedDeals);
+        // Load deals from storage as part of error fallback
+        setDeals(dealStorage.load());
       } finally {
         setIsLoading(false);
       }
