@@ -412,12 +412,13 @@ export async function getStorageStats(): Promise<FileStorageStats> {
       const key = localStorage.key(i);
       if (key?.startsWith('file_metadata_')) {
         try {
-          const metadata = JSON.parse(localStorage.getItem(key) || '{}');
+          const metadata = JSON.parse(localStorage.getItem(key) || '{}') as Partial<DealFile>;
           stats.totalFiles++;
           stats.totalSize += metadata.size || 0;
           stats.localStorageFiles++;
-          if (metadata.category && stats.filesByCategory[metadata.category] !== undefined) {
-            stats.filesByCategory[metadata.category]++;
+          const category = metadata.category as FileCategory | undefined;
+          if (category && Object.prototype.hasOwnProperty.call(stats.filesByCategory, category)) {
+            stats.filesByCategory[category]++;
           }
         } catch {
           // Skip invalid entries
@@ -440,8 +441,9 @@ export async function getStorageStats(): Promise<FileStorageStats> {
           stats.totalFiles++;
           stats.totalSize += result.size || 0;
           stats.indexedDBFiles++;
-          if (result.category && stats.filesByCategory[result.category] !== undefined) {
-            stats.filesByCategory[result.category]++;
+          const category = result.category as FileCategory | undefined;
+          if (category && Object.prototype.hasOwnProperty.call(stats.filesByCategory, category)) {
+            stats.filesByCategory[category]++;
           }
         }
         resolve();

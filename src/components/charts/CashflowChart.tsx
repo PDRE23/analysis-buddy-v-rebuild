@@ -19,13 +19,11 @@ import {
   ResponsiveContainer,
   Brush,
   ReferenceLine,
-  Zoom,
-  Pan,
 } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Download, ZoomIn, ZoomOut, Maximize2 } from "lucide-react";
-import type { AnnualLine } from "../LeaseAnalyzerApp";
+import { Download } from "lucide-react";
+import type { AnnualLine } from "@/components/LeaseAnalyzerApp";
 
 interface CashflowChartProps {
   cashflow: AnnualLine[];
@@ -55,7 +53,6 @@ export function CashflowChart({
     baseRent: line.base_rent,
     operating: line.operating || 0,
     parking: line.parking || 0,
-    concessions: line.concessions || 0,
   }));
 
   const compareData = compareWith?.map((line) => ({
@@ -156,8 +153,6 @@ export function CashflowChart({
               iconType="line"
             />
             <ReferenceLine y={0} stroke="#9ca3af" strokeDasharray="3 3" />
-            <Zoom />
-            <Pan />
             
             {showArea ? (
               <>

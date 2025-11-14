@@ -287,7 +287,7 @@ export function assessDealRisk(deal: Deal, dealScore: DealScore): RiskAssessment
     });
   }
 
-  if (deal.analysisIds.length === 0 && (deal.stage === "Proposal" || deal.stage === "Negotiation")) {
+  if (deal.analysisIds.length === 0 && deal.stage === "Proposal") {
     factors.push({
       factor: "Missing Analysis",
       severity: "high",

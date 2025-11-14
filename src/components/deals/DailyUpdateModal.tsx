@@ -181,7 +181,8 @@ export function DailyUpdateModal({
               {dealsNeedingUpdates.map((dealStatus) => {
                 const isUpdated = !dealStatus.needsUpdate;
                 const update = updates[dealStatus.dealId] || {};
-                const hasUpdate = update.updateType && update.updateType !== '';
+                const hasUpdate =
+                  !!update.updateType && update.updateType !== "no_update";
 
                 return (
                   <Card

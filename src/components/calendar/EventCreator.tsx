@@ -45,7 +45,7 @@ export function EventCreator({
 
   React.useEffect(() => {
     if (deal) {
-      setLocation(deal.propertyAddress || "");
+      setLocation(deal.propertyAddress || deal.property.address || "");
       setDescription(`Deal: ${deal.clientName}\nCompany: ${deal.clientCompany || "N/A"}`);
       
       // Set default event types for deals

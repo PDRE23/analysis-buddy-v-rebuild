@@ -163,7 +163,7 @@ export function EmailTemplatesManager() {
                 className="font-mono text-sm"
               />
               <p className="text-xs text-muted-foreground mt-1">
-                Available variables: {{clientName}}, {{clientCompany}}, {{propertyAddress}}, {{rsf}}, etc.
+                {"Available variables: {{clientName}}, {{clientCompany}}, {{propertyAddress}}, {{rsf}}, etc."}
               </p>
             </div>
 

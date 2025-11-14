@@ -8,6 +8,7 @@ import type { AnalysisMeta } from "../components/LeaseAnalyzerApp";
 import { dealStorage } from "./dealStorage";
 import { storage } from "./storage";
 import { getMarketSuggestions, getAllMarkets } from "./marketIntelligence";
+export { getAllMarkets } from "./marketIntelligence";
 
 /**
  * Simple fuzzy string matching

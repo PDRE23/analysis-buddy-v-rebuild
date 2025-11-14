@@ -186,22 +186,27 @@ export function PipelineApp({
       return updatedDeals;
     });
 
-    if (updatedDealSnapshot && previousStage) {
-      cache.set(cacheKeys.deal(updatedDealSnapshot.id), updatedDealSnapshot);
-      if (supabase && supabaseUser) {
-        upsertDealForUser(supabase, supabaseUser.id, updatedDealSnapshot).catch(
-          (error) => console.error("Failed to persist stage change:", error)
-        );
-      }
-      logAction(auditActor, "deal:update", "deal", {
-        resourceId: updatedDealSnapshot.id,
-        details: {
-          action: "stage_change",
-          from: previousStage,
-          to: newStage,
-        },
-      });
+    if (!updatedDealSnapshot || !previousStage) {
+      return;
     }
+
+    const snapshot: Deal = updatedDealSnapshot;
+    const fromStage = previousStage;
+
+    cache.set(cacheKeys.deal(snapshot.id), snapshot);
+    if (supabase && supabaseUser) {
+      upsertDealForUser(supabase, supabaseUser.id, snapshot).catch(
+        (error) => console.error("Failed to persist stage change:", error)
+      );
+    }
+    logAction(auditActor, "deal:update", "deal", {
+      resourceId: snapshot.id,
+      details: {
+        action: "stage_change",
+        from: fromStage,
+        to: newStage,
+      },
+    });
   }, [auditActor, supabase, supabaseUser]);
 
   const handleViewDeal = useCallback((deal: Deal) => {
@@ -318,17 +323,18 @@ export function PipelineApp({
     }
 
     if (updatedDealSnapshot) {
-      cache.set(cacheKeys.deal(updatedDealSnapshot.id), updatedDealSnapshot);
+      const snapshot: Deal = updatedDealSnapshot;
+      cache.set(cacheKeys.deal(snapshot.id), snapshot);
       if (supabase && supabaseUser) {
-        upsertDealForUser(supabase, supabaseUser.id, updatedDealSnapshot).catch(
+        upsertDealForUser(supabase, supabaseUser.id, snapshot).catch(
           (error) => console.error("Failed to update deal:", error)
         );
       }
       logAction(auditActor, "deal:update", "deal", {
-        resourceId: updatedDealSnapshot.id,
+        resourceId: snapshot.id,
         details: {
           action: "update",
-          stage: updatedDealSnapshot.stage,
+          stage: snapshot.stage,
         },
       });
     }
@@ -383,14 +389,15 @@ export function PipelineApp({
     );
 
     if (snapshot) {
-      cache.set(cacheKeys.deal(snapshot.id), snapshot);
+      const dealSnapshot: Deal = snapshot;
+      cache.set(cacheKeys.deal(dealSnapshot.id), dealSnapshot);
       if (supabase && supabaseUser) {
-        upsertDealForUser(supabase, supabaseUser.id, snapshot).catch((error) =>
+        upsertDealForUser(supabase, supabaseUser.id, dealSnapshot).catch((error) =>
           console.error("Failed to update deal:", error)
         );
       }
       logAction(auditActor, "deal:update", "deal", {
-        resourceId: snapshot.id,
+        resourceId: dealSnapshot.id,
         details: {
           action: "detail_update",
         },

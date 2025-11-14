@@ -9,9 +9,8 @@ import React, { useState, useEffect, useCallback } from "react";
 import { PresentationSlide } from "./PresentationSlide";
 import { PresentationControls } from "./PresentationControls";
 import { ComparisonSlide } from "./ComparisonSlide";
-import type { Proposal } from "../LeaseAnalyzerApp";
-import type { AnalysisMeta } from "../LeaseAnalyzerApp";
-import { buildAnnualCashflow } from "../LeaseAnalyzerApp";
+import type { Proposal, AnalysisMeta } from "@/components/LeaseAnalyzerApp";
+import { buildAnnualCashflow } from "@/components/LeaseAnalyzerApp";
 import {
   generatePresentationSlides,
   generateComparisonSlides,

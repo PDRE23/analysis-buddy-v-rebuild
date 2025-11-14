@@ -22,7 +22,7 @@ import {
   Command,
   ArrowUp,
   ArrowDown,
-  Enter,
+  CornerDownLeft,
   Clock,
 } from "lucide-react";
 import {
@@ -238,7 +238,7 @@ export function CommandPalette({
                     {isSelected && (
                       <div className="flex items-center gap-1 text-xs text-muted-foreground">
                         <kbd className="px-1.5 py-0.5 bg-muted rounded">
-                          <Enter className="inline h-3 w-3" />
+                          <CornerDownLeft className="inline h-3 w-3" />
                         </kbd>
                       </div>
                     )}
@@ -259,7 +259,7 @@ export function CommandPalette({
                   <span>Navigate</span>
                 </div>
                 <div className="flex items-center gap-1">
-                  <Enter className="h-3 w-3" />
+                  <CornerDownLeft className="h-3 w-3" />
                   <span>Select</span>
                 </div>
                 <div className="flex items-center gap-1">

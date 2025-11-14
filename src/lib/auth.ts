@@ -43,10 +43,12 @@ const TOTP_WINDOW = 1; // +/- 30 seconds
 let cachedSession: Session | null = null;
 
 function sanitizeUser(user: StoredUser): User {
-  const safe = { ...user } as Record<string, unknown>;
-  delete safe.passwordHash;
-  delete safe.mfa;
-  return safe as User;
+  return {
+    id: user.id,
+    email: user.email,
+    name: user.name,
+    role: user.role,
+  };
 }
 
 function loadUsers(): StoredUser[] {
@@ -344,7 +346,7 @@ async function generateTotpCode(secret: string, counter: number): Promise<string
 
   const cryptoKey = await crypto.subtle.importKey(
     "raw",
-    keyData,
+    keyData.buffer as ArrayBuffer,
     { name: "HMAC", hash: "SHA-1" },
     false,
     ["sign"]

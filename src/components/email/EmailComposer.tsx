@@ -68,9 +68,9 @@ export function EmailComposer({
     const variables: Record<string, string> = {
       clientName: deal.clientName || "",
       clientCompany: deal.clientCompany || "",
-      propertyAddress: deal.propertyAddress || "",
-      propertyCity: deal.propertyCity || "",
-      propertyState: deal.propertyState || "",
+      propertyAddress: deal.propertyAddress || deal.property.address || "",
+      propertyCity: deal.propertyCity || deal.property.city || "",
+      propertyState: deal.propertyState || deal.property.state || "",
       rsf: deal.rsf?.toString() || "",
       brokerName: "Your Name", // In production, get from user profile
     };

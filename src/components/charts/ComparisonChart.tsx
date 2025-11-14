@@ -24,9 +24,8 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Download } from "lucide-react";
-import type { Proposal } from "../LeaseAnalyzerApp";
-import type { AnalysisMeta } from "../LeaseAnalyzerApp";
-import { buildAnnualCashflow, effectiveRentPSF, npv } from "../LeaseAnalyzerApp";
+import type { Proposal, AnalysisMeta } from "@/components/LeaseAnalyzerApp";
+import { buildAnnualCashflow, effectiveRentPSF, npv } from "@/components/LeaseAnalyzerApp";
 
 interface ComparisonChartProps {
   proposals: Proposal[];
@@ -232,7 +231,7 @@ export function ComparisonChart({
               />
             </BarChart>
           ) : (
-            <RadarChart data={radarData[0]} width={500} height={400}>
+            <RadarChart data={radarData} width={500} height={400}>
               <PolarGrid stroke="#e5e7eb" />
               <PolarAngleAxis
                 dataKey="label"

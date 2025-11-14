@@ -54,7 +54,7 @@ export interface PropertyInfo {
 export interface DealActivity {
   id: string;
   timestamp: string; // ISO date
-  type: "note" | "stage_change" | "analysis_added" | "analysis_updated" | "contact_added";
+  type: "note" | "stage_change" | "analysis_added" | "analysis_updated" | "contact_added" | "email";
   description: string;
   userId?: string;
   userName?: string;
@@ -67,6 +67,9 @@ export interface Deal {
   clientName: string;
   clientCompany?: string;
   property: PropertyInfo;
+  propertyAddress?: string; // legacy convenience field for templates/integrations
+  propertyCity?: string;
+  propertyState?: string;
   
   // Deal Details
   stage: DealStage;

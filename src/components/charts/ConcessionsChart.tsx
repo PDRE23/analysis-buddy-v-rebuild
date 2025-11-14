@@ -19,6 +19,7 @@ import {
   Legend,
   ResponsiveContainer,
 } from "recharts";
+import type { PieLabelRenderProps } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import type { AnalysisMeta } from "../LeaseAnalyzerApp";
@@ -92,6 +93,9 @@ export function ConcessionsChart({
     return null;
   };
 
+  const renderPieLabel = ({ name, percent }: PieLabelRenderProps) =>
+    `${String(name ?? "Value")}: ${(Number(percent ?? 0) * 100).toFixed(0)}%`;
+
   const totalConcessions = pieData.reduce((sum, item) => sum + item.value, 0);
 
   return (
@@ -133,7 +137,7 @@ export function ConcessionsChart({
                 cx="50%"
                 cy="50%"
                 labelLine={false}
-                label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
+                label={renderPieLabel}
                 outerRadius={120}
                 fill="#8884d8"
                 dataKey="value"

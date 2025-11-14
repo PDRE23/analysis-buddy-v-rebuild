@@ -140,7 +140,7 @@ export interface AnalysisMeta extends Record<string, unknown> {
   proposals: Proposal[];
 }
 
-interface Proposal {
+export interface Proposal {
   id: string;
   side: ProposalSide; // Landlord | Tenant
   label?: string; // e.g., "LL v2", "Tenant Counter 1"
@@ -163,7 +163,7 @@ const clamp = (v: number, min: number, max: number) => Math.min(max, Math.max(mi
  * Calc Engine (clean-room)
  *************************************************/
 
-interface AnnualLine {
+export interface AnnualLine {
   year: number; // calendar year
   base_rent: number; // $ total (not psf)
   abatement_credit: number; // negative number (credit)
@@ -191,7 +191,7 @@ function overlappingMonths(start: Date, end: Date, a: Date, b: Date): number {
   return Math.max(0, months + 1); // count partial months
 }
 
-function buildAnnualCashflow(a: AnalysisMeta): AnnualLine[] {
+export function buildAnnualCashflow(a: AnalysisMeta): AnnualLine[] {
   const commencement = new Date(a.key_dates.commencement);
   const expiration = new Date(a.key_dates.expiration);
 
@@ -303,11 +303,11 @@ function buildAnnualCashflow(a: AnalysisMeta): AnnualLine[] {
   return lines;
 }
 
-function npv(lines: AnnualLine[], discountRate: number): number {
+export function npv(lines: AnnualLine[], discountRate: number): number {
   return lines.reduce((acc, row, i) => acc + row.net_cash_flow / Math.pow(1 + discountRate, i + 1), 0);
 }
 
-function effectiveRentPSF(lines: AnnualLine[], rsf: number, years: number): number {
+export function effectiveRentPSF(lines: AnnualLine[], rsf: number, years: number): number {
   const totalNCF = lines.reduce((acc, r) => acc + r.net_cash_flow, 0);
   const denom = Math.max(1, rsf) * Math.max(1, years);
   return totalNCF / denom;
@@ -626,7 +626,9 @@ export default function LeaseAnalyzerApp({
           setAnalyses([demoAnalysis]);
           setDeals(remoteDeals);
 
-          await upsertAnalysesForUser(supabase, supabaseUser.id, [demoAnalysis]);
+          if (supabase && supabaseUser) {
+            await upsertAnalysesForUser(supabase, supabaseUser.id, [demoAnalysis]);
+          }
           dealStorage.save(remoteDeals);
           storage.save([demoAnalysis]);
 
@@ -1104,7 +1106,7 @@ export default function LeaseAnalyzerApp({
                   if (result.success) {
                     const importedAnalyses = storage.load() as AnalysisMeta[];
                     setAnalyses(importedAnalyses);
-                    if (supabaseUser) {
+                    if (supabase && supabaseUser) {
                       upsertAnalysesForUser(supabase, supabaseUser.id, importedAnalyses).catch(
                         (error) => console.error("Failed to sync imported analyses:", error)
                       );

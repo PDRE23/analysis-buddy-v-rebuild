@@ -176,7 +176,7 @@ export function calculateDealHealthScore(deal: Deal): DealHealthScore {
     recommendations.push("Schedule follow-up with client");
   }
   
-  if (deal.analysisIds.length === 0 && (deal.stage === "Proposal" || deal.stage === "Negotiation")) {
+  if (deal.analysisIds.length === 0 && deal.stage === "Proposal") {
     recommendations.push("Create analysis/proposal for this deal");
   }
 
