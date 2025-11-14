@@ -7,9 +7,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Upload, FileDown, Download, Copy, Save, Trash2, ArrowLeft, ChevronRight, AlertCircle } from "lucide-react";
+import { Plus, Upload, FileDown, Download, Copy, Save, Trash2, ArrowLeft, ChevronRight, AlertCircle, Presentation } from "lucide-react";
 import { nanoid } from "nanoid";
 import { storage } from "@/lib/storage";
+import { useAuth } from "@/context/AuthContext";
+import { listAnalysesForUser, upsertAnalysesForUser } from "@/lib/api/analyses";
+import { listDealsForUser, upsertDealForUser } from "@/lib/api/deals";
+import { dealStorage } from "@/lib/dealStorage";
 import { useFormValidation } from "@/hooks/useFormValidation";
 import { validateAnalysisMeta, getSmartValidationSummary } from "@/lib/analysisValidation";
 import { ConfirmationDialog, ConfirmationRequest } from "@/components/ui/confirmation-dialog";
@@ -40,7 +44,33 @@ import {
   createDealFromAnalysis,
   syncAnalysisToDeal
 } from "@/lib/dealAnalysisSync";
-import { dealStorage } from "@/lib/dealStorage";
+import { NERAnalysisView } from "@/components/analysis/NERAnalysisView";
+import type { NERAnalysis } from "@/lib/types/ner";
+import { PresentationMode } from "@/components/presentation/PresentationMode";
+import { 
+  getProposalRecommendations, 
+  detectMissingInformation, 
+  detectTimelineConflicts 
+} from "@/lib/aiInsights";
+import { InsightPanel } from "@/components/ui/insight-badge";
+import { getMarketBasedSuggestions } from "@/lib/intelligentDefaults";
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 
 /*************************************************
  * Types & Data Model
@@ -403,18 +433,23 @@ interface LeaseAnalyzerAppProps {
   initialAnalysisId?: string | null;
   initialDealId?: string | null;
   onBackToPipeline?: () => void;
+  onAnalysesChanged?: (analyses: AnalysisMeta[]) => void;
+  onDealsChanged?: (deals: Deal[]) => void;
 }
 
 export default function LeaseAnalyzerApp({ 
   initialAnalysisId = null, 
   initialDealId = null,
-  onBackToPipeline 
+  onBackToPipeline,
+  onAnalysesChanged,
+  onDealsChanged,
 }: LeaseAnalyzerAppProps = {}) {
   const [analyses, setAnalyses] = useState<AnalysisMeta[]>([]);
   const [deals, setDeals] = useState<Deal[]>([]);
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(initialAnalysisId);
   const [selectedProposalId, setSelectedProposalId] = useState<string | null>(null);
+  const [presentationMode, setPresentationMode] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [lastSaved, setLastSaved] = useState<string | null>(null);
   const [storageStats, setStorageStats] = useState<{
@@ -433,46 +468,151 @@ export default function LeaseAnalyzerApp({
   
   // Error handling
   const { reportError } = useErrorHandler();
+  const { user: supabaseUser, supabase } = useAuth();
 
   const selectedAnalysis = analyses.find((a) => a.id === selectedId) ?? null;
   const selectedProposal = (selectedAnalysis?.proposals as Proposal[])?.find((p) => p.id === selectedProposalId) ?? null;
 
-  // Load data from storage on mount
+  useEffect(() => {
+    onAnalysesChanged?.(analyses);
+  }, [analyses, onAnalysesChanged]);
+
+  useEffect(() => {
+    onDealsChanged?.(deals);
+  }, [deals, onDealsChanged]);
+
+  useEffect(() => {
+    if (!supabase || !supabaseUser) {
+      dealStorage.save(deals);
+    }
+  }, [deals, supabase, supabaseUser]);
+
+  // Load data from Supabase/local storage on mount
   useEffect(() => {
     const loadData = async () => {
       try {
-        const storedAnalyses = storage.load();
-        const storedDeals = dealStorage.load();
-        
-        if (storedAnalyses.length > 0) {
-          setAnalyses(storedAnalyses as AnalysisMeta[]);
-          console.log('📁 Loaded', storedAnalyses.length, 'analyses from storage');
+        if (!supabase || !supabaseUser) {
+          const storedAnalyses = storage.load() as AnalysisMeta[];
+          const storedDeals = dealStorage.load();
+          if (storedAnalyses.length > 0) {
+            setAnalyses(storedAnalyses);
+          } else {
+            const today = new Date().toISOString().split("T")[0];
+            const demoAnalysis: AnalysisMeta = {
+              id: nanoid(),
+              name: "David Barbeito CPA PA",
+              status: "Draft" as const,
+              tenant_name: "Acme Robotics",
+              market: "Miami-Dade",
+              rsf: 20000,
+              lease_type: "FS" as LeaseType,
+              key_dates: {
+                commencement: today,
+                rent_start: today,
+                expiration: new Date(
+                  Date.now() + 365 * 24 * 60 * 60 * 1000 * 5
+                )
+                  .toISOString()
+                  .split("T")[0],
+              },
+              operating: {
+                est_op_ex_psf: 15.5,
+                escalation_method: "fixed",
+                escalation_value: 0.03,
+              },
+              rent_schedule: [
+                {
+                  period_start: today,
+                  period_end: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000)
+                    .toISOString()
+                    .split("T")[0],
+                  rent_psf: 32.0,
+                  escalation_percentage: 0.03,
+                  free_rent_months: 0,
+                  abatement_applies_to: "base_only",
+                },
+              ],
+              concessions: {
+                ti_allowance_psf: 45.0,
+                moving_allowance: 50000,
+              },
+              options: [],
+              cashflow_settings: {
+                discount_rate: 0.08,
+                granularity: "annual",
+              },
+              notes: "Demo analysis for testing",
+              proposals: demoProposals(),
+            };
+            setAnalyses([demoAnalysis]);
+            storage.save([demoAnalysis]);
+          }
+
+          setDeals(storedDeals);
+          setStorageStats(storage.getStats());
+          setLastSaved(new Date().toISOString());
+          return;
+        }
+
+        const [remoteAnalyses, remoteDeals] = await Promise.all([
+          listAnalysesForUser(supabase, supabaseUser.id),
+          listDealsForUser(supabase, supabaseUser.id),
+        ]);
+
+        if (remoteAnalyses.length > 0) {
+          setAnalyses(remoteAnalyses);
+          setDeals(remoteDeals);
+          storage.save(remoteAnalyses);
+          dealStorage.save(remoteDeals);
+          setStorageStats({
+            totalAnalyses: remoteAnalyses.length,
+            totalProposals: remoteAnalyses.reduce(
+              (acc, analysis) => acc + (analysis.proposals?.length ?? 0),
+              0
+            ),
+            lastSaved: new Date().toISOString(),
+            deviceId: supabaseUser?.id ?? "guest",
+            version: "supabase",
+            hasBackup: false,
+          });
         } else {
-          // Initialize with demo data if no stored data
-          const today = new Date().toISOString().split('T')[0];
-          const demoAnalysis: AnalysisMeta = { 
-            id: nanoid(), 
-            name: "David Barbeito CPA PA", 
-            status: "Draft" as const, 
-            tenant_name: "Acme Robotics", 
-            market: "Miami-Dade", 
-            rsf: 20000, 
-            lease_type: "FS" as LeaseType, 
+          const today = new Date().toISOString().split("T")[0];
+          const demoAnalysis: AnalysisMeta = {
+            id: nanoid(),
+            name: "David Barbeito CPA PA",
+            status: "Draft" as const,
+            tenant_name: "Acme Robotics",
+            market: "Miami-Dade",
+            rsf: 20000,
+            lease_type: "FS" as LeaseType,
             key_dates: {
               commencement: today,
               rent_start: today,
-              expiration: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000 * 5).toISOString().split('T')[0],
+              expiration: new Date(
+                Date.now() + 365 * 24 * 60 * 60 * 1000 * 5
+              )
+                .toISOString()
+                .split("T")[0],
             },
             operating: {
-              est_op_ex_psf: 15.50,
+              est_op_ex_psf: 15.5,
               escalation_method: "fixed",
               escalation_value: 0.03,
             },
             rent_schedule: [
-              { period_start: today, period_end: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], rent_psf: 32.00, escalation_percentage: 0.03, free_rent_months: 0, abatement_applies_to: "base_only" },
+              {
+                period_start: today,
+                period_end: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000)
+                  .toISOString()
+                  .split("T")[0],
+                rent_psf: 32.0,
+                escalation_percentage: 0.03,
+                free_rent_months: 0,
+                abatement_applies_to: "base_only",
+              },
             ],
             concessions: {
-              ti_allowance_psf: 45.00,
+              ti_allowance_psf: 45.0,
               moving_allowance: 50000,
             },
             options: [],
@@ -481,41 +621,48 @@ export default function LeaseAnalyzerApp({
               granularity: "annual",
             },
             notes: "Demo analysis for testing",
-            proposals: demoProposals() 
+            proposals: demoProposals(),
           };
           setAnalyses([demoAnalysis]);
-          
-          // Save demo data with enhanced storage
-          const saveResult = storage.save([demoAnalysis]);
-          if (!saveResult.success) {
-            console.warn('⚠️ Failed to save demo data:', saveResult.error);
-          } else {
-            console.log('📁 Initialized with demo data');
-          }
+          setDeals(remoteDeals);
+
+          await upsertAnalysesForUser(supabase, supabaseUser.id, [demoAnalysis]);
+          dealStorage.save(remoteDeals);
+          storage.save([demoAnalysis]);
+
+          console.log("📁 Initialized with demo data");
+          setStorageStats({
+            totalAnalyses: 1,
+            totalProposals: demoAnalysis.proposals.length,
+            lastSaved: new Date().toISOString(),
+            deviceId: supabaseUser?.id ?? "guest",
+            version: "supabase",
+            hasBackup: false,
+          });
         }
+
         setLastSaved(new Date().toISOString());
-        
-        // Update storage stats
-        const stats = storage.getStats();
-        setStorageStats(stats);
       } catch (error) {
-        console.error('❌ Failed to load data:', error);
-        reportError(error as Error, 'Data loading');
-        
-        // Fallback to demo data on error
-        const today = new Date().toISOString().split('T')[0];
-        const demoAnalysis: AnalysisMeta = { 
-          id: nanoid(), 
-          name: "Demo Analysis", 
-          status: "Draft" as const, 
-          tenant_name: "Demo Tenant", 
-          market: "Demo Market", 
-          rsf: 10000, 
-          lease_type: "FS" as LeaseType, 
+        console.error("❌ Failed to load data:", error);
+        reportError(error as Error, "Data loading");
+
+        const today = new Date().toISOString().split("T")[0];
+        const demoAnalysis: AnalysisMeta = {
+          id: nanoid(),
+          name: "Demo Analysis",
+          status: "Draft" as const,
+          tenant_name: "Demo Tenant",
+          market: "Demo Market",
+          rsf: 10000,
+          lease_type: "FS" as LeaseType,
           key_dates: {
             commencement: today,
             rent_start: today,
-            expiration: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000 * 5).toISOString().split('T')[0],
+            expiration: new Date(
+              Date.now() + 365 * 24 * 60 * 60 * 1000 * 5
+            )
+              .toISOString()
+              .split("T")[0],
           },
           operating: {},
           rent_schedule: [],
@@ -526,46 +673,59 @@ export default function LeaseAnalyzerApp({
             granularity: "annual",
           },
           notes: "",
-          proposals: demoProposals() 
+          proposals: demoProposals(),
         };
         setAnalyses([demoAnalysis]);
-        // Load deals from storage as part of error fallback
-        setDeals(dealStorage.load());
+        setDeals([]);
       } finally {
         setIsLoading(false);
       }
     };
 
     loadData();
-  }, []); // Remove reportError from dependencies to prevent infinite loop
+  }, [reportError, supabase, supabaseUser]);
 
 
   // Auto-save when analyses change (with proper dependency management and reduced frequency)
   useEffect(() => {
     if (!isLoading && analyses.length > 0) {
       const timeoutId = setTimeout(() => {
-        try {
-          const saveResult = storage.save(analyses);
-          if (saveResult.success) {
-            setLastSaved(new Date().toISOString());
-            console.log('💾 Auto-saved data successfully');
-            
-            // Update storage stats
-            const stats = storage.getStats();
-            setStorageStats(stats);
-          } else {
-            console.error('❌ Auto-save failed:', saveResult.error);
-            reportError(new Error(saveResult.error || 'Auto-save failed'), 'Auto-save');
+        (async () => {
+          try {
+            if (supabase && supabaseUser) {
+              await upsertAnalysesForUser(supabase, supabaseUser.id, analyses);
+            }
+            const saveResult = storage.save(analyses);
+            if (saveResult.success) {
+              setLastSaved(new Date().toISOString());
+              setStorageStats({
+                totalAnalyses: analyses.length,
+                totalProposals: analyses.reduce(
+                  (acc, analysis) => acc + (analysis.proposals?.length ?? 0),
+                  0
+                ),
+                lastSaved: new Date().toISOString(),
+                deviceId: supabaseUser?.id ?? "guest",
+                version: supabase && supabaseUser ? "supabase" : "local",
+                hasBackup: false,
+              });
+            } else {
+              console.error("❌ Auto-save failed:", saveResult.error);
+              reportError(
+                new Error(saveResult.error || "Auto-save failed"),
+                "Auto-save"
+              );
+            }
+          } catch (error) {
+            console.error("❌ Auto-save error:", error);
+            reportError(error as Error, "Auto-save");
           }
-        } catch (error) {
-          console.error('❌ Auto-save error:', error);
-          reportError(error as Error, 'Auto-save');
-        }
-      }, 3000); // Increased to 3 seconds to reduce frequency
-      
+        })();
+      }, 3000);
+
       return () => clearTimeout(timeoutId);
     }
-  }, [analyses, isLoading, reportError]);
+  }, [analyses, isLoading, reportError, supabase, supabaseUser]);
 
   // Derived
   const list = useMemo(() => {
@@ -672,30 +832,38 @@ export default function LeaseAnalyzerApp({
 
       // Link analysis to deal
       const updatedDeal = linkAnalysisToDeal(deal, analysisId);
-      dealStorage.update(dealId, updatedDeal);
       setDeals(prev => prev.map(d => d.id === dealId ? updatedDeal : d));
+      if (supabase && supabaseUser) {
+        upsertDealForUser(supabase, supabaseUser.id, updatedDeal).catch((error) =>
+          console.error("Failed to link analysis to deal:", error)
+        );
+      }
       
       console.log('✅ Linked analysis', analysisId, 'to deal', dealId);
     } catch (error) {
       console.error('Error linking analysis to deal:', error);
       reportError(error as Error, 'Link analysis to deal');
     }
-  }, [deals, reportError]);
+  }, [deals, reportError, supabase, supabaseUser]);
 
   const handleUnlinkAnalysisFromDeal = useCallback((analysisId: string) => {
     try {
       const linkedDeal = isAnalysisLinkedToDeal(analysisId, deals);
       if (linkedDeal) {
         const updatedDeal = unlinkAnalysisFromDeal(linkedDeal, analysisId);
-        dealStorage.update(linkedDeal.id, updatedDeal);
         setDeals(prev => prev.map(d => d.id === linkedDeal.id ? updatedDeal : d));
+        if (supabase && supabaseUser) {
+          upsertDealForUser(supabase, supabaseUser.id, updatedDeal).catch((error) =>
+            console.error("Failed to unlink analysis from deal:", error)
+          );
+        }
         console.log('✅ Unlinked analysis', analysisId, 'from deal');
       }
     } catch (error) {
       console.error('Error unlinking analysis from deal:', error);
       reportError(error as Error, 'Unlink analysis from deal');
     }
-  }, [deals, reportError]);
+  }, [deals, reportError, supabase, supabaseUser]);
 
   const handleSyncAnalysisToDeal = useCallback((analysisId: string) => {
     try {
@@ -709,15 +877,19 @@ export default function LeaseAnalyzerApp({
 
       // Sync analysis data to deal
       const updatedDeal = syncAnalysisToDeal(linkedDeal, analyses);
-      dealStorage.update(linkedDeal.id, updatedDeal);
       setDeals(prev => prev.map(d => d.id === linkedDeal.id ? updatedDeal : d));
+      if (supabase && supabaseUser) {
+        upsertDealForUser(supabase, supabaseUser.id, updatedDeal).catch((error) =>
+          console.error("Failed to sync analysis to deal:", error)
+        );
+      }
       
       console.log('✅ Synced analysis to deal');
     } catch (error) {
       console.error('Error syncing analysis to deal:', error);
       reportError(error as Error, 'Sync analysis to deal');
     }
-  }, [analyses, deals, reportError]);
+  }, [analyses, deals, reportError, supabase, supabaseUser]);
 
   const handleCreateDealFromAnalysis = useCallback((analysisId: string) => {
     try {
@@ -745,15 +917,19 @@ export default function LeaseAnalyzerApp({
       });
 
       const newDeal = dealData as Deal;
-      dealStorage.add(newDeal);
       setDeals(prev => [...prev, newDeal]);
+      if (supabase && supabaseUser) {
+        upsertDealForUser(supabase, supabaseUser.id, newDeal).catch((error) =>
+          console.error("Failed to create deal from analysis:", error)
+        );
+      }
       
       console.log('✅ Created new deal from analysis:', newDeal.id);
     } catch (error) {
       console.error('Error creating deal from analysis:', error);
       reportError(error as Error, 'Create deal from analysis');
     }
-  }, [analyses, reportError]);
+  }, [analyses, reportError, supabase, supabaseUser]);
 
   const upsertProposal = (analysisId: string, proposal: Proposal) => {
     setAnalyses((prev) =>
@@ -926,7 +1102,13 @@ export default function LeaseAnalyzerApp({
                   const content = e.target?.result as string;
                   const result = storage.import(content);
                   if (result.success) {
-                    setAnalyses(storage.load() as AnalysisMeta[]);
+                    const importedAnalyses = storage.load() as AnalysisMeta[];
+                    setAnalyses(importedAnalyses);
+                    if (supabaseUser) {
+                      upsertAnalysesForUser(supabase, supabaseUser.id, importedAnalyses).catch(
+                        (error) => console.error("Failed to sync imported analyses:", error)
+                      );
+                    }
                     console.log('✅ Imported', result.count, 'analyses');
                   } else {
                     console.error('❌ Import failed:', result.error);
@@ -957,6 +1139,19 @@ export default function LeaseAnalyzerApp({
             onBack={() => setSelectedId(null)}
             onOpenProposal={(pid) => setSelectedProposalId(pid)}
             onNewProposal={createProposal}
+            onReorderProposals={(proposalIds) => {
+              const reorderedProposals = proposalIds
+                .map(id => selectedAnalysis.proposals.find(p => p.id === id))
+                .filter((p): p is Proposal => p !== undefined);
+              
+              setAnalyses(prev =>
+                prev.map(a =>
+                  a.id === selectedAnalysis.id
+                    ? { ...a, proposals: reorderedProposals }
+                    : a
+                )
+              );
+            }}
           />
         </ErrorBoundary>
       ) : (
@@ -970,24 +1165,35 @@ export default function LeaseAnalyzerApp({
             </div>
           }
         >
-          <Workspace
-            proposal={selectedProposal}
-            onBackToBoard={() => setSelectedProposalId(null)}
-            onSave={(updatedMeta) => {
-              try {
-                upsertProposal(selectedAnalysis.id, { ...selectedProposal, meta: updatedMeta });
-              } catch (error) {
-                reportError(error as Error, 'Save proposal');
-                alert('Failed to save proposal. Please try again.');
-              }
-            }}
-            deals={deals}
-            currentLinkedDeal={isAnalysisLinkedToDeal(selectedAnalysis.id, deals)}
-            onLinkToDeal={(dealId) => handleLinkAnalysisToDeal(selectedAnalysis.id, dealId)}
-            onUnlinkFromDeal={() => handleUnlinkAnalysisFromDeal(selectedAnalysis.id)}
-            onSyncWithDeal={() => handleSyncAnalysisToDeal(selectedAnalysis.id)}
-            onCreateDealFromAnalysis={() => handleCreateDealFromAnalysis(selectedAnalysis.id)}
-          />
+          {presentationMode && selectedProposal ? (
+            <PresentationMode
+              proposal={selectedProposal}
+              analysis={selectedAnalysis}
+              proposals={selectedAnalysis.proposals}
+              onClose={() => setPresentationMode(false)}
+            />
+          ) : (
+            <Workspace
+              proposal={selectedProposal}
+              onBackToBoard={() => setSelectedProposalId(null)}
+              onSave={(updatedMeta) => {
+                try {
+                  upsertProposal(selectedAnalysis.id, { ...selectedProposal, meta: updatedMeta });
+                } catch (error) {
+                  reportError(error as Error, 'Save proposal');
+                  alert('Failed to save proposal. Please try again.');
+                }
+              }}
+              deals={deals}
+              currentLinkedDeal={isAnalysisLinkedToDeal(selectedAnalysis.id, deals)}
+              onLinkToDeal={(dealId) => handleLinkAnalysisToDeal(selectedAnalysis.id, dealId)}
+              onUnlinkFromDeal={() => handleUnlinkAnalysisFromDeal(selectedAnalysis.id)}
+              onSyncWithDeal={() => handleSyncAnalysisToDeal(selectedAnalysis.id)}
+              onCreateDealFromAnalysis={() => handleCreateDealFromAnalysis(selectedAnalysis.id)}
+              onEnterPresentation={() => setPresentationMode(true)}
+              allProposals={selectedAnalysis.proposals}
+            />
+          )}
         </AsyncErrorBoundary>
       )}
     </div>
@@ -1152,6 +1358,7 @@ function ProposalsBoard({
   onBack,
   onOpenProposal,
   onNewProposal,
+  onReorderProposals,
 }: {
   analysis: {
     id: string;
@@ -1166,8 +1373,39 @@ function ProposalsBoard({
   onBack: () => void;
   onOpenProposal: (proposalId: string) => void;
   onNewProposal: (side: ProposalSide) => void;
+  onReorderProposals?: (proposalIds: string[]) => void;
 }) {
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 8,
+      },
+    }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    
+    if (over && active.id !== over.id && onReorderProposals) {
+      const oldIndex = analysis.proposals.findIndex(p => p.id === active.id);
+      const newIndex = analysis.proposals.findIndex(p => p.id === over.id);
+      
+      if (oldIndex !== -1 && newIndex !== -1) {
+        const reordered = arrayMove(analysis.proposals, oldIndex, newIndex);
+        onReorderProposals(reordered.map(p => p.id));
+      }
+    }
+  };
+
   return (
+    <DndContext
+      sensors={sensors}
+      collisionDetection={closestCenter}
+      onDragEnd={handleDragEnd}
+    >
     <div className="max-w-[1200px] mx-auto px-4 py-4 sm:py-6">
       <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 mb-4">
         <div className="flex items-center gap-2">
@@ -1272,13 +1510,17 @@ function ProposalsBoard({
       </div>
 
       <div className="hidden sm:block overflow-auto">
-        <div
-          className="min-w-[900px] grid"
-          style={{ gridTemplateColumns: `repeat(${analysis.proposals.length}, 1fr)` }}
+        <SortableContext
+          items={analysis.proposals.map(p => p.id)}
+          strategy={undefined}
         >
+          <div
+            className="min-w-[900px] grid"
+            style={{ gridTemplateColumns: `repeat(${analysis.proposals.length}, 1fr)` }}
+          >
 
-          {/* Proposal columns */}
-          {analysis.proposals.map((p) => {
+            {/* Proposal columns */}
+            {analysis.proposals.map((p) => {
             const meta = p.meta;
             return (
               <div key={p.id} className="border rounded-r-xl -ml-px">
@@ -1351,13 +1593,14 @@ function ProposalsBoard({
                     </div>
                   </div>
                 </div>
-
               </div>
             );
           })}
         </div>
+        </SortableContext>
       </div>
     </div>
+    </DndContext>
   );
 }
 
@@ -1375,6 +1618,8 @@ function Workspace({
   onUnlinkFromDeal,
   onSyncWithDeal,
   onCreateDealFromAnalysis,
+  onEnterPresentation,
+  allProposals,
 }: {
   proposal: Proposal;
   onBackToBoard: () => void;
@@ -1385,6 +1630,8 @@ function Workspace({
   onUnlinkFromDeal: () => void;
   onSyncWithDeal: () => void;
   onCreateDealFromAnalysis: () => void;
+  onEnterPresentation?: () => void;
+  allProposals?: Proposal[];
 }) {
   const meta = proposal.meta;
   const lines = useMemo(() => buildAnnualCashflow(meta), [meta]);
@@ -1482,6 +1729,17 @@ function Workspace({
             onUnlink={onUnlinkFromDeal}
             onSyncNow={onSyncWithDeal}
           />
+          {onEnterPresentation && (
+            <Button
+              variant="default"
+              onClick={onEnterPresentation}
+              className="flex-1 sm:flex-none rounded-2xl"
+              title="Enter Presentation Mode (Ctrl+P)"
+            >
+              <Presentation className="mr-2 h-4 w-4" />
+              <span className="hidden sm:inline">Present</span>
+            </Button>
+          )}
           <Button 
             variant="outline" 
             onClick={() => setShowExportDialog(true)}
@@ -1513,7 +1771,7 @@ function Workspace({
       </div>
 
       <Tabs defaultValue="proposal" className="w-full">
-        <TabsList className="grid grid-cols-4 w-full">
+        <TabsList className="grid grid-cols-5 w-full">
           <TabsTrigger value="proposal" className="text-xs sm:text-sm">
             <span className="hidden sm:inline">Proposal</span>
             <span className="sm:hidden">Prop</span>
@@ -1525,6 +1783,10 @@ function Workspace({
           <TabsTrigger value="cashflow" className="text-xs sm:text-sm">
             <span className="hidden sm:inline">Cashflow</span>
             <span className="sm:hidden">Cash</span>
+          </TabsTrigger>
+          <TabsTrigger value="ner" className="text-xs sm:text-sm">
+            <span className="hidden sm:inline">NER</span>
+            <span className="sm:hidden">NER</span>
           </TabsTrigger>
           <TabsTrigger value="commission" className="text-xs sm:text-sm">
             <span className="hidden sm:inline">Commission</span>
@@ -1538,7 +1800,16 @@ function Workspace({
           <AnalysisTab lines={lines} />
         </TabsContent>
         <TabsContent value="cashflow">
-          <CashflowTab lines={lines} />
+          <CashflowTab lines={lines} meta={meta} proposals={allProposals || [proposal]} />
+        </TabsContent>
+        <TabsContent value="ner">
+          <NERAnalysisView
+            analysis={meta}
+            onSave={(nerAnalysis) => {
+              // Store NER analysis data (can be saved to analysis meta or separate storage)
+              console.log('NER Analysis saved:', nerAnalysis);
+            }}
+          />
         </TabsContent>
         <TabsContent value="commission">
           <CommissionCalculator
@@ -1555,10 +1826,146 @@ function Workspace({
   );
 }
 
+// Sortable Rent Schedule Row Component
+function RentScheduleRow({
+  id,
+  row,
+  idx,
+  setRentRow,
+  deleteRentRow,
+}: {
+  id: string;
+  row: RentRow;
+  idx: number;
+  setRentRow: (idx: number, patch: Partial<RentRow>) => void;
+  deleteRentRow: (idx: number) => void;
+}) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  };
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className="border rounded-lg p-4 space-y-3"
+    >
+      <div className="flex items-center justify-between mb-2">
+        <div
+          {...attributes}
+          {...listeners}
+          className="cursor-grab active:cursor-grabbing flex items-center gap-2 text-xs text-muted-foreground"
+        >
+          <span>::</span>
+          <span>Drag to reorder</span>
+        </div>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="text-destructive"
+          onClick={() => deleteRentRow(idx)}
+        >
+          <Trash2 className="mr-2 h-4 w-4" />
+          Delete Period
+        </Button>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+        <div>
+          <Label>Period Start</Label>
+          <Input
+            type="date"
+            value={row.period_start}
+            onChange={(e) => setRentRow(idx, { period_start: e.currentTarget.value })}
+          />
+        </div>
+        <div>
+          <Label>Period End</Label>
+          <Input
+            type="date"
+            value={row.period_end}
+            onChange={(e) => setRentRow(idx, { period_end: e.currentTarget.value })}
+          />
+        </div>
+        <CurrencyInput
+          label="Base Rent ($/SF/yr)"
+          value={row.rent_psf}
+          onChange={(value) => setRentRow(idx, { rent_psf: value || 0 })}
+          placeholder="0.00"
+        />
+        <PercentageInput
+          label="Annual Escalation"
+          value={(row.escalation_percentage ?? 0) * 100}
+          onChange={(value) => setRentRow(idx, { escalation_percentage: (value || 0) / 100 })}
+          placeholder="3.0"
+        />
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-3 border-t">
+        <ValidatedInput
+          label="Free Rent (Months)"
+          type="number"
+          value={row.free_rent_months ?? 0}
+          onChange={(e) => setRentRow(idx, { free_rent_months: Number(e.currentTarget.value) })}
+          placeholder="0"
+          min="0"
+          hint="Applied at the beginning of the period"
+        />
+        <Select
+          label="Apply Abatement To"
+          value={row.abatement_applies_to || "base_only"}
+          onChange={(e) => setRentRow(idx, { abatement_applies_to: e.currentTarget.value as "base_only" | "base_plus_nnn" })}
+          placeholder="Select abatement type"
+          options={[
+            { value: 'base_only', label: 'Base Rent Only' },
+            { value: 'base_plus_nnn', label: 'Base Rent + NNN' },
+          ]}
+        />
+      </div>
+    </div>
+  );
+}
+
 function ProposalTab({ a, onSave }: { a: AnalysisMeta; onSave: (patch: AnalysisMeta) => void }) {
   const [showConfirmation, setShowConfirmation] = React.useState(false);
   const [pendingData, setPendingData] = React.useState<AnalysisMeta | null>(null);
   const [confirmations, setConfirmations] = React.useState<ConfirmationRequest[]>([]);
+  
+  // Drag and drop sensors for rent schedule
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 8,
+      },
+    }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
+  
+  // Handle rent schedule row reordering
+  const handleRentScheduleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    
+    if (over && active.id !== over.id) {
+      const activeIndex = parseInt(active.id.toString().replace("rent-row-", ""));
+      const overIndex = parseInt(over.id.toString().replace("rent-row-", ""));
+      
+      if (!isNaN(activeIndex) && !isNaN(overIndex)) {
+        const reordered = arrayMove(local.rent_schedule, activeIndex, overIndex);
+        updateField('rent_schedule', reordered);
+      }
+    }
+  };
 
   const {
     data: local,
@@ -1664,6 +2071,26 @@ function ProposalTab({ a, onSave }: { a: AnalysisMeta; onSave: (patch: AnalysisM
   // Calculate section completion status
   const sectionStatuses = getAllSectionStatuses(local, errors);
   const overallStatus = getOverallCompletionStatus(sectionStatuses);
+
+  // AI Insights
+  const marketData = React.useMemo(() => {
+    if (local.market) {
+      return getMarketBasedSuggestions(local.market);
+    }
+    return undefined;
+  }, [local.market]);
+
+  const proposalRecommendations = React.useMemo(() => {
+    return getProposalRecommendations(local, marketData ? {
+      avgRentPSF: marketData.rentRate,
+      avgFreeRentMonths: marketData.commonTerm,
+      avgTIAllowance: marketData.tiAllowance,
+      avgTerm: marketData.leaseTerm,
+    } : undefined);
+  }, [local, marketData]);
+
+  const missingInfo = React.useMemo(() => detectMissingInformation(local), [local]);
+  const timelineWarnings = React.useMemo(() => detectTimelineConflicts(local), [local]);
 
   return (
     <>
@@ -1989,77 +2416,27 @@ function ProposalTab({ a, onSave }: { a: AnalysisMeta; onSave: (patch: AnalysisM
           <CardTitle>Rent Schedule & Abatement</CardTitle>
         </CardHeader>
         <CardContent className="grid gap-4">
-          {local.rent_schedule.map((r, idx) => (
-            <div key={idx} className="border rounded-lg p-4 space-y-3">
-              {/* Period Info Row */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-                <div>
-                  <Label>Period Start</Label>
-                  <Input
-                    type="date"
-                    value={r.period_start}
-                    onChange={(e) => setRentRow(idx, { period_start: e.currentTarget.value })}
-                  />
-                </div>
-                <div>
-                  <Label>Period End</Label>
-                  <Input
-                    type="date"
-                    value={r.period_end}
-                    onChange={(e) => setRentRow(idx, { period_end: e.currentTarget.value })}
-                  />
-                </div>
-                <CurrencyInput
-                  label="Base Rent ($/SF/yr)"
-                  value={r.rent_psf}
-                  onChange={(value) => setRentRow(idx, { rent_psf: value || 0 })}
-                  placeholder="0.00"
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragEnd={handleRentScheduleDragEnd}
+          >
+            <SortableContext
+              items={local.rent_schedule.map((_, idx) => `rent-row-${idx}`)}
+              strategy={verticalListSortingStrategy}
+            >
+              {local.rent_schedule.map((r, idx) => (
+                <RentScheduleRow
+                  key={`rent-row-${idx}`}
+                  id={`rent-row-${idx}`}
+                  row={r}
+                  idx={idx}
+                  setRentRow={setRentRow}
+                  deleteRentRow={deleteRentRow}
                 />
-                <PercentageInput
-                  label="Annual Escalation"
-                  value={(r.escalation_percentage ?? 0) * 100}
-                  onChange={(value) => setRentRow(idx, { escalation_percentage: (value || 0) / 100 })}
-                  placeholder="3.0"
-                />
-              </div>
-              
-              {/* Abatement Row */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-3 border-t">
-                <ValidatedInput
-                  label="Free Rent (Months)"
-                  type="number"
-                  value={r.free_rent_months ?? 0}
-                  onChange={(e) => setRentRow(idx, { free_rent_months: Number(e.currentTarget.value) })}
-                  placeholder="0"
-                  min="0"
-                  hint="Applied at the beginning of the period"
-                />
-                <Select
-                  label="Apply Abatement To"
-                  value={r.abatement_applies_to || "base_only"}
-                  onChange={(e) => setRentRow(idx, { abatement_applies_to: e.currentTarget.value as "base_only" | "base_plus_nnn" })}
-                  placeholder="Select abatement type"
-                  options={[
-                    { value: 'base_only', label: 'Base Rent Only' },
-                    { value: 'base_plus_nnn', label: 'Base Rent + NNN' },
-                  ]}
-                />
-              </div>
-              
-              {/* Delete Button */}
-              <div className="flex justify-end">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="text-destructive"
-                  onClick={() => deleteRentRow(idx)}
-                >
-                  <Trash2 className="mr-2 h-4 w-4" />
-                  Delete Period
-                </Button>
-              </div>
-            </div>
-          ))}
+              ))}
+            </SortableContext>
+          </DndContext>
           <div>
             <Button variant="outline" onClick={addRentRow}>
               <Plus className="mr-2 h-4 w-4" />
@@ -2084,38 +2461,75 @@ function AnalysisTab({ lines }: { lines: AnnualLine[] }) {
   );
 }
 
-function CashflowTab({ lines }: { lines: AnnualLine[] }) {
-  const max = Math.max(...lines.map((l) => Math.abs(l.net_cash_flow)));
-  const barW = 28;
-  const gap = 8;
-  const height = 200;
-  const width = lines.length * (barW + gap) + gap;
+function CashflowTab({ lines, meta, proposals }: { lines: AnnualLine[]; meta: AnalysisMeta; proposals?: Proposal[] }) {
+  // Import chart components dynamically to avoid heavy initial bundle
+  const [ChartsLoaded, setChartsLoaded] = React.useState(false);
+  const [ChartComponents, setChartComponents] = React.useState<{
+    CashflowChart?: React.ComponentType<any>;
+    RentEscalationChart?: React.ComponentType<any>;
+    ConcessionsChart?: React.ComponentType<any>;
+  }>({});
+  
+  React.useEffect(() => {
+    Promise.all([
+      import("@/components/charts/CashflowChart"),
+      import("@/components/charts/RentEscalationChart"),
+      import("@/components/charts/ConcessionsChart"),
+    ]).then(([Cashflow, RentEscalation, Concessions]) => {
+      setChartComponents({
+        CashflowChart: Cashflow.CashflowChart,
+        RentEscalationChart: RentEscalation.RentEscalationChart,
+        ConcessionsChart: Concessions.ConcessionsChart,
+      });
+      setChartsLoaded(true);
+    });
+  }, []);
+  
+  // Get comparison data if multiple proposals exist
+  const comparisonProposal = proposals && proposals.length > 1 
+    ? proposals.find(p => p.id !== proposals[0].id)
+    : undefined;
+  const comparisonCashflow = comparisonProposal 
+    ? buildAnnualCashflow(comparisonProposal.meta)
+    : undefined;
+
+  if (!ChartsLoaded || !ChartComponents.CashflowChart) {
+    return (
+      <div className="flex items-center justify-center p-12">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+          <p className="text-muted-foreground">Loading charts...</p>
+        </div>
+      </div>
+    );
+  }
+
+  const { CashflowChart, RentEscalationChart, ConcessionsChart } = ChartComponents;
 
   return (
-    <Card className="rounded-2xl">
-      <CardHeader>
-        <CardTitle>Annual Net Cash Flow</CardTitle>
-      </CardHeader>
-      <CardContent>
-        <div className="overflow-auto">
-          <svg width={width} height={height}>
-            {lines.map((l, i) => {
-              const x = gap + i * (barW + gap);
-              const h = Math.round((Math.abs(l.net_cash_flow) / (max || 1)) * (height - 20));
-              const y = l.net_cash_flow >= 0 ? height - h : 10;
-              return (
-                <g key={l.year}>
-                  <rect x={x} y={y} width={barW} height={h} rx={6} />
-                  <text x={x + barW / 2} y={height - 2} textAnchor="middle" fontSize={10}>
-                    {String(l.year).slice(2)}
-                  </text>
-                </g>
-              );
-            })}
-          </svg>
-        </div>
-      </CardContent>
-    </Card>
+    <div className="space-y-6">
+      {CashflowChart && (
+        <CashflowChart
+          cashflow={lines}
+          title="Annual Cashflow Timeline"
+          compareWith={comparisonCashflow}
+          compareLabel={comparisonProposal?.label || "Comparison"}
+        />
+      )}
+      {RentEscalationChart && (
+        <RentEscalationChart
+          cashflow={lines}
+          title="Rent Escalation"
+        />
+      )}
+      {ConcessionsChart && (
+        <ConcessionsChart
+          analysis={meta}
+          cashflow={lines}
+          title="Concessions Breakdown"
+        />
+      )}
+    </div>
   );
 }
 

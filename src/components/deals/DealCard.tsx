@@ -3,21 +3,46 @@
 import React from "react";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import type { Deal } from "@/lib/types/deal";
-import { getPriorityColor, daysSinceUpdate, getDealSummary } from "@/lib/types/deal";
-import { Building2, MapPin, Calendar, FileText, MoreVertical, Eye, Edit, Trash2 } from "lucide-react";
+import { ContextMenuComponent, type ContextMenuGroup } from "@/components/ui/context-menu";
+import type { Deal, DealStage } from "@/lib/types/deal";
+import { getPriorityColor, daysSinceUpdate, getDealSummary, ALL_STAGES } from "@/lib/types/deal";
+import { Building2, MapPin, Calendar, FileText, MoreVertical, Eye, Edit, Trash2, AlertCircle, CheckCircle2, Plus, FileDown, StickyNote, Copy } from "lucide-react";
+import { hasDealBeenUpdatedToday, getDealsNeedingUpdates } from "@/lib/dailyTracking";
+import { calculateDealHealthScore } from "@/lib/aiInsights";
+import { InsightBadge } from "@/components/ui/insight-badge";
 
 interface DealCardProps {
   deal: Deal;
   onView?: (deal: Deal) => void;
   onEdit?: (deal: Deal) => void;
   onDelete?: (deal: Deal) => void;
+  onCreateAnalysis?: (deal: Deal) => void;
+  onDuplicate?: (deal: Deal) => void;
+  onExport?: (deal: Deal) => void;
+  onStageChange?: (deal: Deal, stage: DealStage) => void;
   isDragging?: boolean;
 }
 
-export function DealCard({ deal, onView, onEdit, onDelete, isDragging = false }: DealCardProps) {
-  const [showActions, setShowActions] = React.useState(false);
+function DealCardComponent({ 
+  deal, 
+  onView, 
+  onEdit, 
+  onDelete, 
+  onCreateAnalysis,
+  onDuplicate,
+  onExport,
+  onStageChange,
+  isDragging = false 
+}: DealCardProps) {
   const daysStale = daysSinceUpdate(deal);
+  
+  // Check daily update status
+  const hasDailyUpdate = hasDealBeenUpdatedToday(deal.id);
+  const needsDailyUpdate = !hasDailyUpdate && 
+    (deal.status === "Active" || (deal.stage !== "Closed Won" && deal.stage !== "Closed Lost"));
+  
+  // Calculate deal health score
+  const healthScore = React.useMemo(() => calculateDealHealthScore(deal), [deal]);
 
   const handleCardClick = (e: React.MouseEvent) => {
     // Don't trigger view if clicking on action buttons
@@ -27,20 +52,96 @@ export function DealCard({ deal, onView, onEdit, onDelete, isDragging = false }:
     onView?.(deal);
   };
 
+  const handleCardKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      onView?.(deal);
+    }
+  };
+
+  // Build context menu groups
+  const contextMenuGroups: ContextMenuGroup[] = [
+    {
+      id: "primary",
+      actions: [
+        ...(onView ? [{
+          id: "view",
+          label: "View Deal",
+          icon: <Eye className="h-4 w-4" />,
+          onClick: () => onView(deal),
+        }] : []),
+        ...(onEdit ? [{
+          id: "edit",
+          label: "Edit Deal",
+          icon: <Edit className="h-4 w-4" />,
+          onClick: () => onEdit(deal),
+        }] : []),
+        ...(onCreateAnalysis ? [{
+          id: "create-analysis",
+          label: "Create Analysis",
+          icon: <Plus className="h-4 w-4" />,
+          onClick: () => onCreateAnalysis(deal),
+        }] : []),
+      ],
+    },
+    {
+      id: "actions",
+      actions: [
+        ...(onDuplicate ? [{
+          id: "duplicate",
+          label: "Duplicate Deal",
+          icon: <Copy className="h-4 w-4" />,
+          onClick: () => onDuplicate(deal),
+        }] : []),
+        ...(onExport ? [{
+          id: "export",
+          label: "Export Deal Summary",
+          icon: <FileDown className="h-4 w-4" />,
+          onClick: () => onExport(deal),
+        }] : []),
+        ...(onStageChange ? [{
+          id: "move-stage",
+          label: "Move to Stage...",
+          icon: <FileText className="h-4 w-4" />,
+          onClick: () => {
+            // For now, just cycle to next stage - could be enhanced with submenu
+            const currentIndex = ALL_STAGES.indexOf(deal.stage);
+            const nextStage = ALL_STAGES[(currentIndex + 1) % ALL_STAGES.length];
+            onStageChange(deal, nextStage);
+          },
+        }] : []),
+      ],
+    },
+    ...(onDelete ? [{
+      id: "destructive",
+      actions: [{
+        id: "delete",
+        label: "Delete Deal",
+        icon: <Trash2 className="h-4 w-4" />,
+        onClick: () => onDelete(deal),
+        variant: "destructive" as const,
+      }],
+    }] : []),
+  ];
+
   return (
-    <Card
-      className={`
-        group cursor-pointer transition-all hover:shadow-lg border-l-4
-        ${deal.priority === "High" ? "border-l-red-500" : ""}
-        ${deal.priority === "Medium" ? "border-l-yellow-500" : ""}
-        ${deal.priority === "Low" ? "border-l-gray-400" : ""}
-        ${isDragging ? "opacity-50 rotate-2" : ""}
-        ${daysStale > 7 ? "bg-yellow-50" : "bg-white"}
-      `}
-      onClick={handleCardClick}
-      onMouseEnter={() => setShowActions(true)}
-      onMouseLeave={() => setShowActions(false)}
-    >
+    <ContextMenuComponent
+      trigger={
+        <Card
+          className={`
+            group cursor-pointer transition-all hover:shadow-lg border-l-4
+            ${deal.priority === "High" ? "border-l-red-500" : ""}
+            ${deal.priority === "Medium" ? "border-l-yellow-500" : ""}
+            ${deal.priority === "Low" ? "border-l-gray-400" : ""}
+            ${isDragging ? "opacity-50 rotate-2" : ""}
+            ${daysStale > 7 ? "bg-yellow-50" : "bg-white"}
+          `}
+          onClick={handleCardClick}
+          onKeyDown={handleCardKeyDown}
+          role="button"
+          tabIndex={0}
+          aria-label={`View deal ${deal.clientName}`}
+        >
       <CardHeader className="pb-3">
         <div className="flex items-start justify-between gap-2">
           <div className="flex-1 min-w-0">
@@ -54,7 +155,18 @@ export function DealCard({ deal, onView, onEdit, onDelete, isDragging = false }:
             )}
           </div>
           
-          <div className="flex items-center gap-1 flex-shrink-0">
+          <div className="flex items-center gap-1 flex-shrink-0 flex-wrap">
+            <InsightBadge status={healthScore.status} score={healthScore.score} />
+            {needsDailyUpdate && (
+              <Badge variant="destructive" className="text-xs px-1.5 py-0" title="Needs daily update">
+                <AlertCircle className="h-3 w-3" />
+              </Badge>
+            )}
+            {hasDailyUpdate && (
+              <Badge variant="outline" className="text-xs px-1.5 py-0 bg-green-50 border-green-200" title="Updated today">
+                <CheckCircle2 className="h-3 w-3 text-green-600" />
+              </Badge>
+            )}
             <Badge 
               variant="outline" 
               className={`text-xs px-1.5 py-0 ${getPriorityColor(deal.priority)}`}
@@ -67,58 +179,16 @@ export function DealCard({ deal, onView, onEdit, onDelete, isDragging = false }:
               onClick={(e) => e.stopPropagation()}
             >
               <button
-                className={`
-                  p-1 rounded hover:bg-gray-100 transition-opacity
-                  ${showActions ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}
-                `}
-                onClick={() => setShowActions(!showActions)}
+                className="p-1 rounded hover:bg-gray-100 opacity-0 group-hover:opacity-100 transition-opacity"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onView?.(deal);
+                }}
+                aria-label="Show deal actions"
+                aria-haspopup="menu"
               >
                 <MoreVertical className="h-4 w-4 text-gray-400" />
               </button>
-              
-              {showActions && (
-                <div className="absolute right-0 top-8 z-50 bg-white rounded-md shadow-lg border border-gray-200 py-1 min-w-[120px]">
-                  {onView && (
-                    <button
-                      className="w-full px-3 py-1.5 text-sm text-left hover:bg-gray-50 flex items-center gap-2"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onView(deal);
-                        setShowActions(false);
-                      }}
-                    >
-                      <Eye className="h-3 w-3" />
-                      View
-                    </button>
-                  )}
-                  {onEdit && (
-                    <button
-                      className="w-full px-3 py-1.5 text-sm text-left hover:bg-gray-50 flex items-center gap-2"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onEdit(deal);
-                        setShowActions(false);
-                      }}
-                    >
-                      <Edit className="h-3 w-3" />
-                      Edit
-                    </button>
-                  )}
-                  {onDelete && (
-                    <button
-                      className="w-full px-3 py-1.5 text-sm text-left hover:bg-red-50 text-red-600 flex items-center gap-2"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onDelete(deal);
-                        setShowActions(false);
-                      }}
-                    >
-                      <Trash2 className="h-3 w-3" />
-                      Delete
-                    </button>
-                  )}
-                </div>
-              )}
             </div>
           </div>
         </div>
@@ -177,7 +247,13 @@ export function DealCard({ deal, onView, onEdit, onDelete, isDragging = false }:
         )}
 
       </CardContent>
-    </Card>
+        </Card>
+      }
+      groups={contextMenuGroups}
+    />
   );
 }
+
+export const DealCard = React.memo(DealCardComponent);
+DealCard.displayName = "DealCard";
 

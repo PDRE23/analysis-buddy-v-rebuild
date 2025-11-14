@@ -1,0 +1,44 @@
+{
+  "name": "Analysis Buddy V2",
+  "short_name": "Analysis Buddy",
+  "description": "The ultimate tool for commercial real estate brokers",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#2563eb",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "/icon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["business", "productivity"],
+  "shortcuts": [
+    {
+      "name": "New Deal",
+      "short_name": "New Deal",
+      "description": "Create a new deal",
+      "url": "/?action=new-deal",
+      "icons": [{ "src": "/icon-192x192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "New Analysis",
+      "short_name": "New Analysis",
+      "description": "Create a new analysis",
+      "url": "/?action=new-analysis",
+      "icons": [{ "src": "/icon-192x192.png", "sizes": "192x192" }]
+    }
+  ],
+  "screenshots": [],
+  "prefer_related_applications": false
+}
+

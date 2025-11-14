@@ -39,9 +39,18 @@ export interface CloudStorageConfig {
   syncInterval: number; // minutes
 }
 
-const STORAGE_KEY = 'lease-analyzer-data';
-const BACKUP_KEY = 'lease-analyzer-backup';
+const STORAGE_KEY_BASE = 'lease-analyzer-data';
+const BACKUP_KEY_BASE = 'lease-analyzer-backup';
 const CURRENT_VERSION = '1.1';
+
+let storageNamespace = "guest";
+
+const getStorageKey = () => `${STORAGE_KEY_BASE}:${storageNamespace}`;
+const getBackupKey = () => `${BACKUP_KEY_BASE}:${storageNamespace}`;
+
+export function setAnalysisStorageUser(userId: string | null | undefined) {
+  storageNamespace = userId ?? "guest";
+}
 
 /**
  * Check if localStorage is available
@@ -65,10 +74,10 @@ const getDeviceId = (): string => {
     return `device_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   }
   
-  let deviceId = localStorage.getItem('device-id');
+  let deviceId = localStorage.getItem(`device-id:${storageNamespace}`);
   if (!deviceId) {
     deviceId = `device_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    localStorage.setItem('device-id', deviceId);
+    localStorage.setItem(`device-id:${storageNamespace}`, deviceId);
   }
   return deviceId;
 };
@@ -108,9 +117,9 @@ const createBackup = (): StorageResult => {
       return { success: false, error: 'LocalStorage not available' };
     }
     
-    const currentData = localStorage.getItem(STORAGE_KEY);
+    const currentData = localStorage.getItem(getStorageKey());
     if (currentData) {
-      localStorage.setItem(BACKUP_KEY, currentData);
+      localStorage.setItem(getBackupKey(), currentData);
       console.log('💾 Backup created successfully');
       return { success: true, backupCreated: true };
     }
@@ -132,9 +141,9 @@ const restoreFromBackup = (): StorageResult => {
       return { success: false, error: 'LocalStorage not available' };
     }
     
-    const backupData = localStorage.getItem(BACKUP_KEY);
+    const backupData = localStorage.getItem(getBackupKey());
     if (backupData) {
-      localStorage.setItem(STORAGE_KEY, backupData);
+      localStorage.setItem(getStorageKey(), backupData);
       console.log('🔄 Data restored from backup');
       return { success: true, data: JSON.parse(backupData) };
     }
@@ -188,7 +197,7 @@ export const storage = {
         }
       };
       
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+      localStorage.setItem(getStorageKey(), JSON.stringify(data));
       console.log('📁 Data saved successfully:', analyses.length, 'analyses');
       
       return { 
@@ -214,7 +223,7 @@ export const storage = {
         return [];
       }
 
-      const stored = localStorage.getItem(STORAGE_KEY);
+      const stored = localStorage.getItem(getStorageKey());
       if (!stored) {
         console.log('📁 No stored data found, using defaults');
         return [];
@@ -286,7 +295,7 @@ export const storage = {
       
       // Update version and save migrated data
       data.version = CURRENT_VERSION;
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+      localStorage.setItem(getStorageKey(), JSON.stringify(data));
       
       console.log('✅ Data migration completed');
       return data.analyses || [];
@@ -305,7 +314,7 @@ export const storage = {
         console.warn('⚠️ LocalStorage not available, cannot clear data');
         return;
       }
-      localStorage.removeItem(STORAGE_KEY);
+      localStorage.removeItem(getStorageKey());
       console.log('🗑️ Stored data cleared');
     } catch (error) {
       console.error('❌ Failed to clear localStorage:', error);
@@ -321,7 +330,7 @@ export const storage = {
         return { hasData: false, count: 0 };
       }
 
-      const stored = localStorage.getItem(STORAGE_KEY);
+      const stored = localStorage.getItem(getStorageKey());
       if (!stored) {
         return { hasData: false, count: 0 };
       }
@@ -429,7 +438,7 @@ export const storage = {
       lastSaved: info.lastSaved,
       deviceId: getDeviceId(),
       version: CURRENT_VERSION,
-      hasBackup: isLocalStorageAvailable() ? !!localStorage.getItem(BACKUP_KEY) : false
+      hasBackup: isLocalStorageAvailable() ? !!localStorage.getItem(getBackupKey()) : false
     };
   },
 

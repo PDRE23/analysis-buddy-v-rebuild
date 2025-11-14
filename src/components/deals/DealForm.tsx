@@ -1,14 +1,22 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { SmartSuggestions, type SmartSuggestion } from "@/components/ui/smart-suggestions";
 import type { Deal, DealStage, DealPriority } from "@/lib/types/deal";
 import { ALL_STAGES } from "@/lib/types/deal";
 import { X } from "lucide-react";
+import {
+  getClientPattern,
+  getMarketBasedSuggestions,
+  getRSFSuggestion,
+  getAllMarkets,
+  getDateSuggestions,
+} from "@/lib/intelligentDefaults";
 
 interface DealFormProps {
   deal?: Deal; // If provided, we're editing; otherwise creating
@@ -40,6 +48,137 @@ export function DealForm({ deal, onSave, onCancel }: DealFormProps) {
   });
 
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [showSuggestions, setShowSuggestions] = useState(true);
+  const [clientSuggestions, setClientSuggestions] = useState<SmartSuggestion[]>([]);
+  const [marketSuggestions, setMarketSuggestions] = useState<SmartSuggestion[]>([]);
+  const [rsfSuggestions, setRsfSuggestions] = useState<SmartSuggestion[]>([]);
+  const [dateSuggestions, setDateSuggestions] = useState<SmartSuggestion[]>([]);
+
+  // Get market string from city/state
+  const marketString = useMemo(() => {
+    if (formData.propertyCity && formData.propertyState) {
+      return `${formData.propertyCity}, ${formData.propertyState}`;
+    }
+    return "";
+  }, [formData.propertyCity, formData.propertyState]);
+
+  // Calculate client pattern suggestions
+  useEffect(() => {
+    if (!deal && formData.clientName && formData.clientName.length >= 2 && showSuggestions) {
+      const pattern = getClientPattern(formData.clientName);
+      if (pattern) {
+        const suggestions: SmartSuggestion[] = [];
+        
+        if (pattern.avgRSF > 0 && !formData.rsf) {
+          suggestions.push({
+            label: "RSF",
+            value: pattern.avgRSF,
+            description: `Based on previous deals for ${pattern.clientName}`,
+            onClick: () => handleChange("rsf", pattern.avgRSF.toString()),
+            type: "client",
+          });
+        }
+        
+        if (pattern.avgLeaseTerm > 0 && !formData.leaseTerm) {
+          suggestions.push({
+            label: "Lease Term",
+            value: `${pattern.avgLeaseTerm} months`,
+            description: `Typical for ${pattern.clientName}`,
+            onClick: () => handleChange("leaseTerm", (pattern.avgLeaseTerm * 12).toString()),
+            type: "client",
+          });
+        }
+        
+        setClientSuggestions(suggestions);
+      } else {
+        setClientSuggestions([]);
+      }
+    } else {
+      setClientSuggestions([]);
+    }
+  }, [formData.clientName, formData.rsf, formData.leaseTerm, deal, showSuggestions]);
+
+  // Calculate market suggestions
+  useEffect(() => {
+    if (!deal && marketString && showSuggestions) {
+      const marketData = getMarketBasedSuggestions(marketString);
+      if (marketData) {
+        const suggestions: SmartSuggestion[] = [];
+        
+        if (marketData.rsfRange.avg > 0 && !formData.rsf) {
+          suggestions.push({
+            label: "RSF",
+            value: marketData.rsfRange.avg,
+            description: `Avg in ${marketString}`,
+            onClick: () => handleChange("rsf", marketData.rsfRange.avg.toString()),
+            type: "market",
+          });
+        }
+        
+        if (marketData.leaseTerm > 0 && !formData.leaseTerm) {
+          suggestions.push({
+            label: "Lease Term",
+            value: `${marketData.leaseTerm} years`,
+            description: `Typical in ${marketString}`,
+            onClick: () => handleChange("leaseTerm", (marketData.leaseTerm * 12).toString()),
+            type: "market",
+          });
+        }
+        
+        setMarketSuggestions(suggestions);
+      } else {
+        setMarketSuggestions([]);
+      }
+    } else {
+      setMarketSuggestions([]);
+    }
+  }, [marketString, formData.rsf, formData.leaseTerm, deal, showSuggestions]);
+
+  // Calculate RSF suggestions
+  useEffect(() => {
+    if (!deal && formData.rsf && showSuggestions) {
+      const rsfSuggestion = getRSFSuggestion(formData.rsf);
+      if (rsfSuggestion && rsfSuggestion.suggested !== Number(formData.rsf)) {
+        setRsfSuggestions([{
+          label: "Suggested RSF",
+          value: rsfSuggestion.suggested,
+          description: rsfSuggestion.note || "Based on input",
+          onClick: () => handleChange("rsf", rsfSuggestion.suggested.toString()),
+          type: "default",
+        }]);
+      } else {
+        setRsfSuggestions([]);
+      }
+    } else {
+      setRsfSuggestions([]);
+    }
+  }, [formData.rsf, deal, showSuggestions]);
+
+  // Calculate date suggestions when expected close date changes
+  useEffect(() => {
+    if (!deal && formData.expectedCloseDate && showSuggestions) {
+      const suggestions = getDateSuggestions(formData.expectedCloseDate);
+      const suggestionsList: SmartSuggestion[] = [];
+      
+      // Suggest rent start date (1 month after commencement/close)
+      if (!formData.leaseTerm) {
+        suggestionsList.push({
+          label: "Rent Start",
+          value: suggestions.rentStart,
+          description: "1 month after close",
+          onClick: () => {
+            // This would be for lease commencement, not deal close date
+            // For now, we'll just show the suggestion
+          },
+          type: "date",
+        });
+      }
+      
+      setDateSuggestions(suggestionsList);
+    } else {
+      setDateSuggestions([]);
+    }
+  }, [formData.expectedCloseDate, deal, showSuggestions]);
 
   const handleChange = (field: string, value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }));
@@ -145,6 +284,12 @@ export function DealForm({ deal, onSave, onCancel }: DealFormProps) {
                   {errors.clientName && (
                     <p className="text-xs text-red-500 mt-1">{errors.clientName}</p>
                   )}
+                  {clientSuggestions.length > 0 && (
+                    <SmartSuggestions
+                      suggestions={clientSuggestions}
+                      className="mt-2"
+                    />
+                  )}
                 </div>
                 <div>
                   <Label htmlFor="clientCompany">Company</Label>
@@ -198,6 +343,16 @@ export function DealForm({ deal, onSave, onCancel }: DealFormProps) {
                       <p className="text-xs text-red-500 mt-1">{errors.propertyState}</p>
                     )}
                   </div>
+                </div>
+                {marketSuggestions.length > 0 && (
+                  <div className="mt-2">
+                    <SmartSuggestions
+                      suggestions={marketSuggestions}
+                      className="mt-2"
+                    />
+                  </div>
+                )}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div>
                     <Label htmlFor="propertyZipCode">Zip Code</Label>
                     <Input
@@ -273,6 +428,12 @@ export function DealForm({ deal, onSave, onCancel }: DealFormProps) {
                   />
                   {errors.rsf && (
                     <p className="text-xs text-red-500 mt-1">{errors.rsf}</p>
+                  )}
+                  {rsfSuggestions.length > 0 && (
+                    <SmartSuggestions
+                      suggestions={rsfSuggestions}
+                      className="mt-2"
+                    />
                   )}
                 </div>
                 <div>

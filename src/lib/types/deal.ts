@@ -114,6 +114,10 @@ export interface Deal {
     completed: boolean;
     dueDate?: string;
   }>;
+  
+  // Files
+  files?: string[]; // Array of file IDs (metadata stored separately)
+  lastDailyUpdate?: string; // ISO date for daily tracking
 }
 
 export interface DealStats {

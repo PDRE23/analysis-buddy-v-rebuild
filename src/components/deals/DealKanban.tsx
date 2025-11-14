@@ -131,7 +131,21 @@ export function DealKanban({
     }
 
     const dealId = active.id as string;
-    const newStage = over.id as DealStage;
+    
+    // Check if over.id is a valid stage, otherwise find the deal's stage
+    let newStage: DealStage;
+    if (stagesToShow.includes(over.id as DealStage)) {
+      // Dropped directly on a stage column
+      newStage = over.id as DealStage;
+    } else {
+      // Dropped on another deal - find which stage that deal belongs to
+      const targetDeal = deals.find(d => d.id === over.id);
+      if (!targetDeal) {
+        setActiveDeal(null);
+        return;
+      }
+      newStage = targetDeal.stage;
+    }
 
     // Find the deal being moved
     const deal = deals.find(d => d.id === dealId);

@@ -18,7 +18,7 @@ export async function generateExcel(
 ): Promise<ExcelJS.Buffer> {
   const workbook = new ExcelJS.Workbook();
   
-  workbook.creator = 'Analysis Buddy V2';
+  workbook.creator = 'B² (Bsquared)';
   workbook.created = new Date();
   workbook.modified = new Date();
   workbook.lastPrinted = new Date();
@@ -419,7 +419,7 @@ export async function generateComparisonExcel(
 ): Promise<ExcelJS.Buffer> {
   const workbook = new ExcelJS.Workbook();
   
-  workbook.creator = 'Analysis Buddy V2';
+  workbook.creator = 'B² (Bsquared)';
   workbook.created = new Date();
   
   // Add comparison overview sheet

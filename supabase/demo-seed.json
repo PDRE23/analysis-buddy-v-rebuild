@@ -1,0 +1,77 @@
+{
+  "analyses": [
+    {
+      "id": "00000000-0000-4000-a000-000000000001",
+      "name": "Demo Lease Analysis",
+      "status": "Draft",
+      "tenant_name": "Acme Robotics",
+      "market": "Miami-Dade",
+      "rsf": 20000,
+      "lease_type": "FS",
+      "key_dates": {
+        "commencement": "2026-01-01",
+        "rent_start": "2026-02-01",
+        "expiration": "2031-01-31"
+      },
+      "operating": {
+        "est_op_ex_psf": 18,
+        "escalation_method": "fixed",
+        "escalation_value": 0.03
+      },
+      "rent_schedule": [
+        {
+          "period_start": "2026-01-01",
+          "period_end": "2027-12-31",
+          "rent_psf": 48,
+          "escalation_percentage": 0.03,
+          "free_rent_months": 2,
+          "abatement_applies_to": "base_plus_nnn"
+        }
+      ],
+      "concessions": {
+        "ti_allowance_psf": 65,
+        "moving_allowance": 250000
+      },
+      "options": [],
+      "cashflow_settings": {
+        "discount_rate": 0.08,
+        "granularity": "annual"
+      },
+      "notes": "Imported sample analysis",
+      "proposals": []
+    }
+  ],
+  "deals": [
+    {
+      "id": "00000000-0000-4000-a000-00000000000a",
+      "clientName": "Acme Robotics",
+      "clientCompany": "Acme Robotics",
+      "property": {
+        "address": "123 Innovation Way",
+        "city": "Miami",
+        "state": "FL"
+      },
+      "stage": "Proposal",
+      "priority": "High",
+      "rsf": 20000,
+      "leaseTerm": 60,
+      "expectedCloseDate": "2026-01-01",
+      "estimatedValue": 2500000,
+      "broker": "Primary Broker",
+      "status": "Active",
+      "analysisIds": [
+        "00000000-0000-4000-a000-000000000001"
+      ],
+      "activities": [
+        {
+          "id": "00000000-0000-4000-a000-00000000000b",
+          "timestamp": "2025-11-01T12:00:00.000Z",
+          "type": "note",
+          "description": "Imported demo deal"
+        }
+      ],
+      "createdAt": "2025-10-15T00:00:00.000Z",
+      "updatedAt": "2025-11-01T12:00:00.000Z"
+    }
+  ]
+}

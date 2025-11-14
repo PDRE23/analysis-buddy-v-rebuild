@@ -6,9 +6,18 @@
 import type { Deal } from "./types/deal";
 import { storage } from "./storage";
 
-const DEALS_STORAGE_KEY = 'lease-analyzer-deals';
-const DEALS_BACKUP_KEY = 'lease-analyzer-deals-backup';
+const DEALS_STORAGE_KEY_BASE = 'lease-analyzer-deals';
+const DEALS_BACKUP_KEY_BASE = 'lease-analyzer-deals-backup';
 const DEALS_VERSION = '1.0';
+
+let storageNamespace = "guest";
+
+const getDealsStorageKey = () => `${DEALS_STORAGE_KEY_BASE}:${storageNamespace}`;
+const getDealsBackupKey = () => `${DEALS_BACKUP_KEY_BASE}:${storageNamespace}`;
+
+export function setDealStorageUser(userId: string | null | undefined) {
+  storageNamespace = userId ?? "guest";
+}
 
 export interface DealsStoredData {
   deals: Deal[];
@@ -107,9 +116,9 @@ const createDealsBackup = (): boolean => {
       return false;
     }
     
-    const currentData = localStorage.getItem(DEALS_STORAGE_KEY);
+    const currentData = localStorage.getItem(getDealsStorageKey());
     if (currentData) {
-      localStorage.setItem(DEALS_BACKUP_KEY, currentData);
+      localStorage.setItem(getDealsBackupKey(), currentData);
       console.log('💾 Deals backup created successfully');
       return true;
     }
@@ -128,10 +137,10 @@ const getDeviceId = (): string => {
     return `device_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   }
   
-  let deviceId = localStorage.getItem('device-id');
+  let deviceId = localStorage.getItem(`device-id:${storageNamespace}`);
   if (!deviceId) {
     deviceId = `device_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    localStorage.setItem('device-id', deviceId);
+    localStorage.setItem(`device-id:${storageNamespace}`, deviceId);
   }
   return deviceId;
 };
@@ -167,7 +176,7 @@ export const dealStorage = {
         deviceId: getDeviceId(),
       };
       
-      localStorage.setItem(DEALS_STORAGE_KEY, JSON.stringify(data));
+      localStorage.setItem(getDealsStorageKey(), JSON.stringify(data));
       console.log('📁 Deals saved successfully:', deals.length, 'deals');
       
       return { success: true };
@@ -190,7 +199,7 @@ export const dealStorage = {
         return [];
       }
 
-      const stored = localStorage.getItem(DEALS_STORAGE_KEY);
+      const stored = localStorage.getItem(getDealsStorageKey());
       if (!stored) {
         console.log('📁 No stored deals found, using defaults');
         return [];
@@ -206,7 +215,7 @@ export const dealStorage = {
       if (!validation.valid) {
         console.warn('⚠️ Loaded deal data has validation issues:', validation.errors);
         // Try to restore from backup
-        const backup = localStorage.getItem(DEALS_BACKUP_KEY);
+        const backup = localStorage.getItem(getDealsBackupKey());
         if (backup) {
           try {
             const backupData: DealsStoredData = JSON.parse(backup);
@@ -233,7 +242,7 @@ export const dealStorage = {
       
       // Try to restore from backup
       try {
-        const backup = localStorage.getItem(DEALS_BACKUP_KEY);
+        const backup = localStorage.getItem(getDealsBackupKey());
         if (backup) {
           const backupData: DealsStoredData = JSON.parse(backup);
           console.log('✅ Deals restored from backup after error');
@@ -381,7 +390,7 @@ export const dealStorage = {
         console.warn('⚠️ LocalStorage not available, cannot clear data');
         return;
       }
-      localStorage.removeItem(DEALS_STORAGE_KEY);
+      localStorage.removeItem(getDealsStorageKey());
       console.log('🗑️ Deals cleared');
     } catch (error) {
       console.error('❌ Failed to clear deals:', error);

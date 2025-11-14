@@ -29,6 +29,7 @@ import {
   Link,
 } from "lucide-react";
 import { LinkAnalysisDialog } from "@/components/ui/link-analysis-dialog";
+import { FileManager } from "./FileManager";
 
 interface DealDetailViewProps {
   deal: Deal;
@@ -51,7 +52,7 @@ export function DealDetailView({
   onCreateAnalysis,
   onLinkAnalysis,
 }: DealDetailViewProps) {
-  const [activeTab, setActiveTab] = useState<"overview" | "analyses" | "notes">("overview");
+  const [activeTab, setActiveTab] = useState<"overview" | "analyses" | "notes" | "files">("overview");
   const [showLinkAnalysisDialog, setShowLinkAnalysisDialog] = useState(false);
   const daysStale = daysSinceUpdate(deal);
 
@@ -126,6 +127,17 @@ export function DealDetailView({
           >
             <StickyNote className="h-4 w-4" />
             Notes ({deal.detailedNotes?.length || 0})
+          </button>
+          <button
+            onClick={() => setActiveTab("files")}
+            className={`pb-4 px-2 border-b-2 transition-colors whitespace-nowrap flex items-center gap-1 ${
+              activeTab === "files"
+                ? "border-blue-500 text-blue-600 font-medium"
+                : "border-transparent text-gray-600 hover:text-gray-900"
+            }`}
+          >
+            <FileText className="h-4 w-4" />
+            Files
           </button>
         </div>
       </div>
@@ -361,6 +373,15 @@ export function DealDetailView({
               notes={deal.detailedNotes || []}
               onChange={handleNotesChange}
               userName={deal.broker || "User"}
+            />
+          </div>
+        )}
+
+        {activeTab === "files" && (
+          <div className="max-w-4xl">
+            <FileManager
+              dealId={deal.id}
+              uploadedBy={deal.broker || "User"}
             />
           </div>
         )}

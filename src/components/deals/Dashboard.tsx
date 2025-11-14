@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -16,6 +16,7 @@ import {
   Kanban, 
   TrendingUp,
 } from "lucide-react";
+import { VirtualizedList } from "@/components/ui/virtualized-list";
 
 interface DashboardProps {
   deals: Deal[];
@@ -38,6 +39,59 @@ export function Dashboard({
   const [searchQuery, setSearchQuery] = useState("");
   const [showClosedDeals, setShowClosedDeals] = useState(false);
   const [previousView, setPreviousView] = useState<DealView>("kanban");
+
+  const handleDealKeyPress = useCallback((e: React.KeyboardEvent<HTMLDivElement>, deal: Deal) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      onViewDeal(deal);
+    }
+  }, [onViewDeal]);
+
+  const renderListDeal = useCallback((deal: Deal) => (
+    <div className="px-1 pb-2">
+      <div
+        className="bg-white border rounded-lg p-4 hover:shadow-md transition-shadow cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary/40"
+        onClick={() => onViewDeal(deal)}
+        onKeyDown={(e) => handleDealKeyPress(e, deal)}
+        role="button"
+        tabIndex={0}
+        aria-label={`Open deal ${deal.clientName}`}
+      >
+        <div className="flex items-center justify-between">
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-3">
+              <h3 className="font-semibold text-base truncate">
+                {deal.clientName}
+              </h3>
+              <Badge className={getStageColor(deal.stage)} variant="secondary">
+                {deal.stage}
+              </Badge>
+              <Badge variant="outline" className="text-xs">
+                {deal.priority}
+              </Badge>
+            </div>
+            <div className="flex items-center gap-4 mt-1 text-sm text-gray-600">
+              <span>{deal.property.address}, {deal.property.city}</span>
+              <span aria-hidden="true">•</span>
+              <span>{deal.rsf.toLocaleString()} RSF</span>
+              <span aria-hidden="true">•</span>
+              <span>{deal.broker}</span>
+            </div>
+          </div>
+          <div className="text-right">
+            {deal.estimatedValue && (
+              <div className="font-semibold">
+                ${(deal.estimatedValue / 1000).toFixed(0)}K
+              </div>
+            )}
+            <div className="text-xs text-gray-500">
+              {deal.analysisIds.length} {deal.analysisIds.length === 1 ? "analysis" : "analyses"}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  ), [handleDealKeyPress, onViewDeal]);
 
   // Calculate dashboard stats
   const stats = useMemo(() => {
@@ -80,6 +134,10 @@ export function Dashboard({
 
     return filtered;
   }, [deals, searchQuery, showClosedDeals]);
+
+  const shouldVirtualize = filteredDeals.length > 25;
+  const listItemHeight = 152;
+  const listContainerHeight = Math.max(Math.min(filteredDeals.length, 6) * listItemHeight, listItemHeight);
 
   // Get recent activities across all deals
   const recentActivities = useMemo(() => {
@@ -160,6 +218,8 @@ export function Dashboard({
               variant={view === "kanban" ? "default" : "outline"}
               size="sm"
               onClick={() => setView("kanban")}
+              aria-label="Switch to Kanban view"
+              aria-pressed={view === "kanban"}
             >
               <Kanban className="h-4 w-4" />
             </Button>
@@ -167,6 +227,8 @@ export function Dashboard({
               variant={view === "cards" ? "default" : "outline"}
               size="sm"
               onClick={() => setView("cards")}
+              aria-label="Switch to card grid view"
+              aria-pressed={view === "cards"}
             >
               <LayoutGrid className="h-4 w-4" />
             </Button>
@@ -174,6 +236,8 @@ export function Dashboard({
               variant={view === "list" ? "default" : "outline"}
               size="sm"
               onClick={() => setView("list")}
+              aria-label="Switch to list view"
+              aria-pressed={view === "list"}
             >
               <LayoutList className="h-4 w-4" />
             </Button>
@@ -194,6 +258,7 @@ export function Dashboard({
                 setShowClosedDeals(false);
               }
             }}
+            aria-pressed={showClosedDeals}
           >
             {showClosedDeals ? "Hide" : "Show"} Closed
           </Button>
@@ -228,7 +293,7 @@ export function Dashboard({
           <>
             {/* Show list view for closed deals, otherwise respect view setting */}
             {showClosedDeals ? (
-              <div className="space-y-2 overflow-y-auto">
+              <div className="overflow-y-auto">
                 <div className="mb-4">
                   <h2 className="text-lg font-semibold text-gray-900">
                     Closed Deals ({filteredDeals.length})
@@ -237,46 +302,21 @@ export function Dashboard({
                     {filteredDeals.filter(d => d.stage === "Closed Won").length} won • {filteredDeals.filter(d => d.stage === "Closed Lost").length} lost
                   </p>
                 </div>
-                {filteredDeals.map(deal => (
-                  <div
-                    key={deal.id}
-                    className="bg-white border rounded-lg p-4 hover:shadow-md transition-shadow cursor-pointer"
-                    onClick={() => onViewDeal(deal)}
-                  >
-                    <div className="flex items-center justify-between">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-3">
-                          <h3 className="font-semibold text-base truncate">
-                            {deal.clientName}
-                          </h3>
-                          <Badge className={getStageColor(deal.stage)} variant="secondary">
-                            {deal.stage}
-                          </Badge>
-                          <Badge variant="outline" className="text-xs">
-                            {deal.priority}
-                          </Badge>
-                        </div>
-                        <div className="flex items-center gap-4 mt-1 text-sm text-gray-600">
-                          <span>{deal.property.address}, {deal.property.city}</span>
-                          <span>•</span>
-                          <span>{deal.rsf.toLocaleString()} RSF</span>
-                          <span>•</span>
-                          <span>{deal.broker}</span>
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        {deal.estimatedValue && (
-                          <div className="font-semibold">
-                            ${(deal.estimatedValue / 1000).toFixed(0)}K
-                          </div>
-                        )}
-                        <div className="text-xs text-gray-500">
-                          {deal.analysisIds.length} {deal.analysisIds.length === 1 ? 'analysis' : 'analyses'}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                ))}
+                {shouldVirtualize ? (
+                  <VirtualizedList
+                    items={filteredDeals}
+                    itemHeight={listItemHeight}
+                    containerHeight={listContainerHeight}
+                    overscan={4}
+                    renderItem={(item) => renderListDeal(item)}
+                  />
+                ) : (
+                  filteredDeals.map((deal) => (
+                    <React.Fragment key={deal.id}>
+                      {renderListDeal(deal)}
+                    </React.Fragment>
+                  ))
+                )}
               </div>
             ) : (
               <>
@@ -307,47 +347,22 @@ export function Dashboard({
                 )}
 
                 {view === "list" && (
-                  <div className="space-y-2 overflow-y-auto">
-                    {filteredDeals.map(deal => (
-                      <div
-                        key={deal.id}
-                        className="bg-white border rounded-lg p-4 hover:shadow-md transition-shadow cursor-pointer"
-                        onClick={() => onViewDeal(deal)}
-                      >
-                        <div className="flex items-center justify-between">
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-3">
-                              <h3 className="font-semibold text-base truncate">
-                                {deal.clientName}
-                              </h3>
-                              <Badge className={getStageColor(deal.stage)} variant="secondary">
-                                {deal.stage}
-                              </Badge>
-                              <Badge variant="outline" className="text-xs">
-                                {deal.priority}
-                              </Badge>
-                            </div>
-                            <div className="flex items-center gap-4 mt-1 text-sm text-gray-600">
-                              <span>{deal.property.address}, {deal.property.city}</span>
-                              <span>•</span>
-                              <span>{deal.rsf.toLocaleString()} RSF</span>
-                              <span>•</span>
-                              <span>{deal.broker}</span>
-                            </div>
-                          </div>
-                          <div className="text-right">
-                            {deal.estimatedValue && (
-                              <div className="font-semibold">
-                                ${(deal.estimatedValue / 1000).toFixed(0)}K
-                              </div>
-                            )}
-                            <div className="text-xs text-gray-500">
-                              {deal.analysisIds.length} {deal.analysisIds.length === 1 ? 'analysis' : 'analyses'}
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
+                  <div className="overflow-y-auto">
+                    {shouldVirtualize ? (
+                      <VirtualizedList
+                        items={filteredDeals}
+                        itemHeight={listItemHeight}
+                        containerHeight={listContainerHeight}
+                        overscan={4}
+                        renderItem={(item) => renderListDeal(item)}
+                      />
+                    ) : (
+                      filteredDeals.map((deal) => (
+                        <React.Fragment key={deal.id}>
+                          {renderListDeal(deal)}
+                        </React.Fragment>
+                      ))
+                    )}
                   </div>
                 )}
               </>

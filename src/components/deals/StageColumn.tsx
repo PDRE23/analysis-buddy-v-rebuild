@@ -45,6 +45,7 @@ export function StageColumn({ stage, deals, onAddDeal, children }: StageColumnPr
               size="sm"
               className="h-7 px-2"
               onClick={() => onAddDeal(stage)}
+            aria-label={`Add new deal in ${stage}`}
             >
               <Plus className="h-4 w-4" />
             </Button>
@@ -65,6 +66,8 @@ export function StageColumn({ stage, deals, onAddDeal, children }: StageColumnPr
           flex-1 rounded-lg p-2 transition-colors min-h-[200px]
           ${isOver ? 'bg-blue-50 border-2 border-blue-300 border-dashed' : 'bg-gray-50 border-2 border-transparent'}
         `}
+        role="list"
+        aria-label={`${stage} deals`}
       >
         <SortableContext
           items={deals.map(d => d.id)}

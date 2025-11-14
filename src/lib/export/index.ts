@@ -89,7 +89,7 @@ export async function exportAnalysis(
     if (format === 'pdf') {
       const pdfBlob = await generatePDF(exportData, config, {
         title: analysis.name,
-        author: 'Analysis Buddy V2',
+        author: 'B² (Bsquared)',
         subject: 'Lease Analysis Report',
         keywords: ['lease', 'analysis', 'commercial real estate'],
         createdDate: new Date(),
