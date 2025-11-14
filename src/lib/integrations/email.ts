@@ -3,6 +3,7 @@
  * Gmail and Outlook integration for email sync and sending
  */
 
+import { nanoid } from "nanoid";
 import type { Deal } from "../types/deal";
 import type { AnalysisMeta } from "../../components/LeaseAnalyzerApp";
 
@@ -192,11 +193,14 @@ export function createDealFromEmail(email: EmailMessage): Partial<Deal> {
     expectedCloseDate: parsed.expectedCloseDate,
     notes: parsed.notes || email.body,
     // Link email to deal
-    activities: [{
-      type: "email",
-      description: `Email from ${email.from}: ${email.subject}`,
-      timestamp: email.date,
-    }],
+    activities: [
+      {
+        id: nanoid(),
+        type: "email",
+        description: `Email from ${email.from}: ${email.subject}`,
+        timestamp: email.date,
+      },
+    ],
   };
 }
 

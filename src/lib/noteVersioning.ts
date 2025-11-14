@@ -3,7 +3,7 @@
  * Track changes and restore previous versions
  */
 
-import type { TeamNote } from "./types/teamNotes";
+import type { TeamNote, TeamNoteCategory } from "./types/teamNotes";
 import { nanoid } from "nanoid";
 
 export interface NoteVersion {
@@ -94,7 +94,8 @@ export function restoreNoteVersion(
     content: versionData.content,
     title: versionData.title,
     tags: versionData.tags,
-    category: versionData.category || note.category,
+    category:
+      (versionData.category as TeamNoteCategory | undefined) || note.category,
     updatedAt: new Date().toISOString(),
   };
 

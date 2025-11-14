@@ -19,8 +19,11 @@ export interface TeamNote {
   updatedAt: string;
   createdBy: string; // user name
   updatedBy?: string;
+  author?: string;
   attachments?: string[]; // Array of file IDs (optional file attachments)
   isPinned?: boolean;
+  linkedDealId?: string;
+  linkedAnalysisId?: string;
 }
 
 export interface TeamNotesStorage {

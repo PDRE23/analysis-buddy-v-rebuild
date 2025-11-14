@@ -231,7 +231,7 @@ export function getDealSuggestions(
   };
   
   if (clientName) {
-    suggestions.clientPattern = getClientPattern(clientName);
+    suggestions.clientPattern = getClientPattern(clientName) || undefined;
   }
   
   if (market) {
@@ -239,7 +239,7 @@ export function getDealSuggestions(
   }
   
   if (rsfInput) {
-    suggestions.rsfSuggestion = getRSFSuggestion(rsfInput);
+    suggestions.rsfSuggestion = getRSFSuggestion(rsfInput) || undefined;
   }
   
   return suggestions;
@@ -273,7 +273,7 @@ export function getAnalysisSuggestions(
   }
   
   if (rsfInput) {
-    suggestions.rsfSuggestion = getRSFSuggestion(rsfInput);
+    suggestions.rsfSuggestion = getRSFSuggestion(rsfInput) || undefined;
   }
   
   return suggestions;

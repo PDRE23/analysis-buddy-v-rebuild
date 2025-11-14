@@ -85,6 +85,7 @@ export interface Deal {
   broker: string;
   brokerEmail?: string;
   teamMembers?: string[]; // Array of broker names/emails
+  assignedTo?: string;
   
   // Related Analyses
   analysisIds: string[]; // References to AnalysisMeta IDs
