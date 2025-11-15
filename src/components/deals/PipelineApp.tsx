@@ -130,7 +130,15 @@ export function PipelineApp({
 
         setShowDailyUpdateModal(needsDailyUpdates(dealsToUse));
       } catch (error) {
-        console.error("Failed to load deals and analyses:", error);
+        console.error("Failed to load deals and analyses from Supabase:", error);
+        // Fall back to local storage if Supabase fails (e.g., tables don't exist)
+        console.warn("Falling back to local storage...");
+        const localDeals = dealStorage.load();
+        const localAnalyses = storage.load() as AnalysisMeta[];
+        setDeals(localDeals.length > 0 ? localDeals : ensureDemoDeals([]));
+        setAnalyses(localAnalyses);
+        onDealsUpdated?.(localDeals);
+        onAnalysesUpdated?.(localAnalyses);
       }
     })();
 
