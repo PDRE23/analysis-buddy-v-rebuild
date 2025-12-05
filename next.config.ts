@@ -21,6 +21,53 @@ const nextConfig: NextConfig = {
       preventFullImport: true,
     },
   },
+  // Add security headers including CSP
+  async headers() {
+    return [
+      {
+        source: "/:path*",
+        headers: [
+          {
+            key: "Content-Security-Policy",
+            value: [
+              "default-src 'self'",
+              "script-src 'self' 'unsafe-eval' 'unsafe-inline'", // 'unsafe-eval' needed for Next.js dev mode, 'unsafe-inline' for print styles
+              "script-src-attr 'self' 'unsafe-inline'", // Allow inline event handlers (onclick, etc.)
+              "style-src 'self' 'unsafe-inline'", // Allow inline styles for print functionality
+              "style-src-attr 'unsafe-inline'", // Allow inline style attributes
+              "img-src 'self' data: blob:",
+              "font-src 'self' data:",
+              "connect-src 'self' https://*.supabase.co https://*.supabase.in",
+              "frame-src 'self'",
+              "object-src 'none'",
+              "base-uri 'self'",
+              "form-action 'self'",
+              "frame-ancestors 'none'",
+              "upgrade-insecure-requests",
+            ].join("; "),
+          },
+          {
+            key: "X-Content-Type-Options",
+            value: "nosniff",
+          },
+          {
+            key: "X-Frame-Options",
+            value: "DENY",
+          },
+          {
+            key: "X-XSS-Protection",
+            value: "1; mode=block",
+          },
+          {
+            key: "Referrer-Policy",
+            value: "strict-origin-when-cross-origin",
+          },
+        ],
+      },
+    ];
+  },
+  // Webpack config - only applies when using webpack (dev:webpack script)
+  // Turbopack (default) doesn't use this config
   webpack: (config) => {
     config.optimization = {
       ...config.optimization,

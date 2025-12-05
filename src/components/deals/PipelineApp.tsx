@@ -16,6 +16,7 @@ import { DailyUpdateModal } from "./DailyUpdateModal";
 import { needsDailyUpdates } from "@/lib/dailyTracking";
 import { cache, cacheKeys } from "@/lib/cache";
 import { useAuth } from "@/context/AuthContext";
+import { isSupabaseConfigured } from "@/lib/supabase/client";
 import type { User } from "@/lib/auth";
 import { logAction } from "@/lib/audit";
 import {
@@ -85,7 +86,7 @@ export function PipelineApp({
 
   // Load data when the authenticated user changes
   useEffect(() => {
-    if (!supabase || !supabaseUser) {
+    if (!isSupabaseConfigured || !supabase || !supabaseUser) {
       const localDeals = ensureDemoDeals(dealStorage.load());
       const localAnalyses = storage.load() as AnalysisMeta[];
       setDeals(localDeals);
@@ -112,9 +113,9 @@ export function PipelineApp({
         let dealsToUse = remoteDeals;
         if (dealsToUse.length === 0) {
           dealsToUse = ensureDemoDeals([]);
-          if (dealsToUse.length > 0) {
-            await upsertDealsForUser(supabase, supabaseUser.id, dealsToUse);
-          }
+        if (dealsToUse.length > 0 && isSupabaseConfigured && supabase) {
+          await upsertDealsForUser(supabase, supabaseUser.id, dealsToUse);
+        }
         }
 
         setDeals(dealsToUse);
@@ -202,7 +203,7 @@ export function PipelineApp({
     const fromStage = previousStage;
 
     cache.set(cacheKeys.deal(snapshot.id), snapshot);
-    if (supabase && supabaseUser) {
+    if (isSupabaseConfigured && supabase && supabaseUser) {
       upsertDealForUser(supabase, supabaseUser.id, snapshot).catch(
         (error) => console.error("Failed to persist stage change:", error)
       );
@@ -236,7 +237,7 @@ export function PipelineApp({
         setDeals(prevDeals => prevDeals.filter(d => d.id !== deal.id));
         setDeleteConfirmation(null);
         cache.delete(cacheKeys.deal(deal.id));
-        if (supabase && supabaseUser) {
+        if (isSupabaseConfigured && supabase && supabaseUser) {
           deleteDealForUser(supabase, supabaseUser.id, deal.id).catch((error) =>
             console.error("Failed to delete deal:", error)
           );
@@ -333,7 +334,7 @@ export function PipelineApp({
     if (updatedDealSnapshot) {
       const snapshot: Deal = updatedDealSnapshot;
       cache.set(cacheKeys.deal(snapshot.id), snapshot);
-      if (supabase && supabaseUser) {
+      if (isSupabaseConfigured && supabase && supabaseUser) {
         upsertDealForUser(supabase, supabaseUser.id, snapshot).catch(
           (error) => console.error("Failed to update deal:", error)
         );
@@ -349,7 +350,7 @@ export function PipelineApp({
 
     if (createdDeal) {
       cache.set(cacheKeys.deal(createdDeal.id), createdDeal);
-      if (supabase && supabaseUser) {
+      if (isSupabaseConfigured && supabase && supabaseUser) {
         upsertDealForUser(supabase, supabaseUser.id, createdDeal).catch((error) =>
           console.error("Failed to create deal:", error)
         );
@@ -399,7 +400,7 @@ export function PipelineApp({
     if (snapshot) {
       const dealSnapshot: Deal = snapshot;
       cache.set(cacheKeys.deal(dealSnapshot.id), dealSnapshot);
-      if (supabase && supabaseUser) {
+      if (isSupabaseConfigured && supabase && supabaseUser) {
         upsertDealForUser(supabase, supabaseUser.id, dealSnapshot).catch((error) =>
           console.error("Failed to update deal:", error)
         );
@@ -423,7 +424,7 @@ export function PipelineApp({
       const updatedDeal = linkAnalysisToDeal(deal, analysisId);
       setDeals(prev => prev.map(d => d.id === dealId ? updatedDeal : d));
       cache.set(cacheKeys.deal(updatedDeal.id), updatedDeal);
-      if (supabase && supabaseUser) {
+      if (isSupabaseConfigured && supabase && supabaseUser) {
         upsertDealForUser(supabase, supabaseUser.id, updatedDeal).catch((error) =>
           console.error("Failed to link analysis:", error)
         );
@@ -465,6 +466,7 @@ export function PipelineApp({
           onEditDeal={handleEditDeal}
           onDeleteDeal={handleDeleteDeal}
           onAddDeal={handleAddDeal}
+          onOpenStatusUpdates={() => setShowDailyUpdateModal(true)}
         />
       )}
 
@@ -499,12 +501,22 @@ export function PipelineApp({
         isOpen={showDailyUpdateModal}
         onComplete={() => {
           setShowDailyUpdateModal(false);
-          if (!supabase || !supabaseUser) return;
-          listDealsForUser(supabase, supabaseUser.id)
-            .then((freshDeals) => {
-              setDeals(freshDeals);
-            })
-            .catch((error) => console.error("Failed to refresh deals:", error));
+        }}
+        onUpdateDeal={(dealId, updatedDeal) => {
+          // Update the deal in the pipeline
+          setDeals(prev => prev.map(d => d.id === dealId ? updatedDeal : d));
+          // Save to storage
+          const updatedDeals = deals.map(d => d.id === dealId ? updatedDeal : d);
+          dealStorage.save(updatedDeals);
+          // Sync to Supabase if available
+          if (isSupabaseConfigured && supabase && supabaseUser) {
+            upsertDealForUser(supabase, supabaseUser.id, updatedDeal).catch((error) =>
+              console.error("Failed to update deal:", error)
+            );
+          }
+        }}
+        onUpdateDealStage={(dealId, newStage) => {
+          handleDealStageChange(dealId, newStage);
         }}
         userId="User"
       />

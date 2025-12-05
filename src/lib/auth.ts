@@ -200,12 +200,12 @@ export async function authenticateWithPassword(email: string, password: string):
 }> {
   const record = findUserByEmail(email);
   if (!record) {
-    throw new Error("Invalid credentials");
+    throw new Error("No account found with this email. Please sign up first.");
   }
 
   const passwordHash = await hash(password);
   if (!secureCompare(passwordHash, record.passwordHash)) {
-    throw new Error("Invalid credentials");
+    throw new Error("Invalid password. Please check your password and try again.");
   }
 
   const user = sanitizeUser(record);

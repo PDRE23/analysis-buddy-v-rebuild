@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { AnalysisMeta } from "@/components/LeaseAnalyzerApp";
+import { withTimeout, isNetworkError } from "@/lib/supabase/timeout";
 
 const TABLE_NAME = "user_analyses";
 
@@ -15,17 +16,27 @@ export async function listAnalysesForUser(
   supabase: SupabaseClient,
   userId: string
 ): Promise<AnalysisMeta[]> {
-  const { data, error } = await supabase
-    .from(TABLE_NAME)
-    .select("analysis")
-    .eq("user_id", userId)
-    .order("created_at", { ascending: true });
+  try {
+    const query = supabase
+      .from(TABLE_NAME)
+      .select("analysis")
+      .eq("user_id", userId)
+      .order("created_at", { ascending: true });
 
-  if (error) {
-    throw new Error(error.message);
+    const { data, error } = await withTimeout(query);
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    return data?.map((row) => row.analysis) ?? [];
+  } catch (error: any) {
+    if (isNetworkError(error)) {
+      console.warn("Supabase unavailable for listAnalysesForUser, using local storage");
+      throw error; // Let caller handle fallback
+    }
+    throw error;
   }
-
-  return data?.map((row) => row.analysis) ?? [];
 }
 
 export async function upsertAnalysisForUser(
@@ -33,18 +44,28 @@ export async function upsertAnalysisForUser(
   userId: string,
   analysis: AnalysisMeta
 ): Promise<void> {
-  const payload: AnalysisRow = {
-    id: analysis.id,
-    user_id: userId,
-    analysis,
-  };
+  try {
+    const payload: AnalysisRow = {
+      id: analysis.id,
+      user_id: userId,
+      analysis,
+    };
 
-  const { error } = await supabase.from(TABLE_NAME).upsert(payload, {
-    onConflict: "id",
-  });
+    const query = supabase.from(TABLE_NAME).upsert(payload, {
+      onConflict: "id",
+    });
 
-  if (error) {
-    throw new Error(error.message);
+    const { error } = await withTimeout(query);
+
+    if (error) {
+      throw new Error(error.message);
+    }
+  } catch (error: any) {
+    if (isNetworkError(error)) {
+      console.warn("Supabase unavailable for upsertAnalysisForUser, using local storage");
+      throw error; // Let caller handle fallback
+    }
+    throw error;
   }
 }
 
@@ -57,18 +78,28 @@ export async function upsertAnalysesForUser(
     return;
   }
 
-  const rows: AnalysisRow[] = analyses.map((analysis) => ({
-    id: analysis.id,
-    user_id: userId,
-    analysis,
-  }));
+  try {
+    const rows: AnalysisRow[] = analyses.map((analysis) => ({
+      id: analysis.id,
+      user_id: userId,
+      analysis,
+    }));
 
-  const { error } = await supabase.from(TABLE_NAME).upsert(rows, {
-    onConflict: "id",
-  });
+    const query = supabase.from(TABLE_NAME).upsert(rows, {
+      onConflict: "id",
+    });
 
-  if (error) {
-    throw new Error(error.message);
+    const { error } = await withTimeout(query);
+
+    if (error) {
+      throw new Error(error.message);
+    }
+  } catch (error: any) {
+    if (isNetworkError(error)) {
+      console.warn("Supabase unavailable for upsertAnalysesForUser, using local storage");
+      throw error; // Let caller handle fallback
+    }
+    throw error;
   }
 }
 
@@ -77,14 +108,24 @@ export async function deleteAnalysisForUser(
   userId: string,
   analysisId: string
 ): Promise<void> {
-  const { error } = await supabase
-    .from(TABLE_NAME)
-    .delete()
-    .eq("user_id", userId)
-    .eq("id", analysisId);
+  try {
+    const query = supabase
+      .from(TABLE_NAME)
+      .delete()
+      .eq("user_id", userId)
+      .eq("id", analysisId);
 
-  if (error) {
-    throw new Error(error.message);
+    const { error } = await withTimeout(query);
+
+    if (error) {
+      throw new Error(error.message);
+    }
+  } catch (error: any) {
+    if (isNetworkError(error)) {
+      console.warn("Supabase unavailable for deleteAnalysisForUser, using local storage");
+      throw error; // Let caller handle fallback
+    }
+    throw error;
   }
 }
 

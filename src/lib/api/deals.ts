@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Deal } from "@/lib/types/deal";
+import { withTimeout, isNetworkError } from "@/lib/supabase/timeout";
 
 const TABLE_NAME = "user_deals";
 
@@ -15,17 +16,27 @@ export async function listDealsForUser(
   supabase: SupabaseClient,
   userId: string
 ): Promise<Deal[]> {
-  const { data, error } = await supabase
-    .from(TABLE_NAME)
-    .select("deal")
-    .eq("user_id", userId)
-    .order("created_at", { ascending: true });
+  try {
+    const query = supabase
+      .from(TABLE_NAME)
+      .select("deal")
+      .eq("user_id", userId)
+      .order("created_at", { ascending: true });
 
-  if (error) {
-    throw new Error(error.message);
+    const { data, error } = await withTimeout(query);
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    return data?.map((row) => row.deal) ?? [];
+  } catch (error: any) {
+    if (isNetworkError(error)) {
+      console.warn("Supabase unavailable for listDealsForUser, using local storage");
+      throw error; // Let caller handle fallback
+    }
+    throw error;
   }
-
-  return data?.map((row) => row.deal) ?? [];
 }
 
 export async function upsertDealForUser(
@@ -33,18 +44,28 @@ export async function upsertDealForUser(
   userId: string,
   deal: Deal
 ): Promise<void> {
-  const payload: DealRow = {
-    id: deal.id,
-    user_id: userId,
-    deal,
-  };
+  try {
+    const payload: DealRow = {
+      id: deal.id,
+      user_id: userId,
+      deal,
+    };
 
-  const { error } = await supabase.from(TABLE_NAME).upsert(payload, {
-    onConflict: "id",
-  });
+    const query = supabase.from(TABLE_NAME).upsert(payload, {
+      onConflict: "id",
+    });
 
-  if (error) {
-    throw new Error(error.message);
+    const { error } = await withTimeout(query);
+
+    if (error) {
+      throw new Error(error.message);
+    }
+  } catch (error: any) {
+    if (isNetworkError(error)) {
+      console.warn("Supabase unavailable for upsertDealForUser, using local storage");
+      throw error; // Let caller handle fallback
+    }
+    throw error;
   }
 }
 
@@ -57,18 +78,28 @@ export async function upsertDealsForUser(
     return;
   }
 
-  const rows: DealRow[] = deals.map((deal) => ({
-    id: deal.id,
-    user_id: userId,
-    deal,
-  }));
+  try {
+    const rows: DealRow[] = deals.map((deal) => ({
+      id: deal.id,
+      user_id: userId,
+      deal,
+    }));
 
-  const { error } = await supabase.from(TABLE_NAME).upsert(rows, {
-    onConflict: "id",
-  });
+    const query = supabase.from(TABLE_NAME).upsert(rows, {
+      onConflict: "id",
+    });
 
-  if (error) {
-    throw new Error(error.message);
+    const { error } = await withTimeout(query);
+
+    if (error) {
+      throw new Error(error.message);
+    }
+  } catch (error: any) {
+    if (isNetworkError(error)) {
+      console.warn("Supabase unavailable for upsertDealsForUser, using local storage");
+      throw error; // Let caller handle fallback
+    }
+    throw error;
   }
 }
 
@@ -77,14 +108,24 @@ export async function deleteDealForUser(
   userId: string,
   dealId: string
 ): Promise<void> {
-  const { error } = await supabase
-    .from(TABLE_NAME)
-    .delete()
-    .eq("user_id", userId)
-    .eq("id", dealId);
+  try {
+    const query = supabase
+      .from(TABLE_NAME)
+      .delete()
+      .eq("user_id", userId)
+      .eq("id", dealId);
 
-  if (error) {
-    throw new Error(error.message);
+    const { error } = await withTimeout(query);
+
+    if (error) {
+      throw new Error(error.message);
+    }
+  } catch (error: any) {
+    if (isNetworkError(error)) {
+      console.warn("Supabase unavailable for deleteDealForUser, using local storage");
+      throw error; // Let caller handle fallback
+    }
+    throw error;
   }
 }
 

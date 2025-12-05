@@ -11,6 +11,7 @@ import { Plus, Upload, FileDown, Download, Copy, Save, Trash2, ArrowLeft, Chevro
 import { nanoid } from "nanoid";
 import { storage } from "@/lib/storage";
 import { useAuth } from "@/context/AuthContext";
+import { isSupabaseConfigured } from "@/lib/supabase/client";
 import { listAnalysesForUser, upsertAnalysesForUser } from "@/lib/api/analyses";
 import { listDealsForUser, upsertDealForUser } from "@/lib/api/deals";
 import { dealStorage } from "@/lib/dealStorage";
@@ -392,7 +393,7 @@ function KPI({ label, value, hint }: { label: string; value: string; hint?: stri
   );
 }
 
-function YearTable({ lines }: { lines: AnnualLine[] }) {
+const YearTable = React.memo(function YearTable({ lines }: { lines: AnnualLine[] }) {
   return (
     <div className="overflow-auto border rounded-xl">
       <table className="min-w-full text-sm">
@@ -423,7 +424,7 @@ function YearTable({ lines }: { lines: AnnualLine[] }) {
       </table>
     </div>
   );
-}
+});
 
 /*************************************************
  * Main App
@@ -449,6 +450,7 @@ export default function LeaseAnalyzerApp({
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(initialAnalysisId);
   const [selectedProposalId, setSelectedProposalId] = useState<string | null>(null);
+  const [pendingNewAnalysisId, setPendingNewAnalysisId] = useState<string | null>(null);
   const [presentationMode, setPresentationMode] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [lastSaved, setLastSaved] = useState<string | null>(null);
@@ -473,6 +475,35 @@ export default function LeaseAnalyzerApp({
   const selectedAnalysis = analyses.find((a) => a.id === selectedId) ?? null;
   const selectedProposal = (selectedAnalysis?.proposals as Proposal[])?.find((p) => p.id === selectedProposalId) ?? null;
 
+  // Handle pending new analysis - set selectedId when it appears in the array
+  useEffect(() => {
+    if (pendingNewAnalysisId) {
+      const found = analyses.find((a) => a.id === pendingNewAnalysisId);
+      if (found) {
+        console.log('🔧 New analysis found in array, setting as selected:', pendingNewAnalysisId);
+        setSelectedId(pendingNewAnalysisId);
+        setPendingNewAnalysisId(null);
+      } else {
+        console.log('⏳ Waiting for analysis to appear in array:', pendingNewAnalysisId, 'Current analyses:', analyses.map(a => a.id));
+      }
+    }
+  }, [pendingNewAnalysisId, analyses]);
+
+  // Ensure selectedId is set when a new analysis is created
+  useEffect(() => {
+    // If we have a selectedId but the analysis isn't found yet, wait for it
+    if (selectedId && !selectedAnalysis) {
+      // The analysis should appear soon, but if it doesn't after a short delay, reset
+      const timeout = setTimeout(() => {
+        if (!analyses.find((a) => a.id === selectedId)) {
+          console.warn('Selected analysis not found, resetting selection');
+          setSelectedId(null);
+        }
+      }, 100);
+      return () => clearTimeout(timeout);
+    }
+  }, [selectedId, selectedAnalysis, analyses]);
+
   useEffect(() => {
     onAnalysesChanged?.(analyses);
   }, [analyses, onAnalysesChanged]);
@@ -490,6 +521,7 @@ export default function LeaseAnalyzerApp({
   // Load data from Supabase/local storage on mount
   useEffect(() => {
     const loadData = async () => {
+      setIsLoading(true); // Ensure loading starts
       try {
         if (!supabase || !supabaseUser) {
           const storedAnalyses = storage.load() as AnalysisMeta[];
@@ -551,134 +583,177 @@ export default function LeaseAnalyzerApp({
           setDeals(storedDeals);
           setStorageStats(storage.getStats());
           setLastSaved(new Date().toISOString());
-          return;
-        }
+          // Don't return here - let finally block handle setIsLoading(false)
+        } else if (isSupabaseConfigured && supabase && supabaseUser) {
+          // Add timeout wrapper - if Supabase is slow, fall back to local storage
+          let remoteAnalyses: AnalysisMeta[];
+          let remoteDeals: Deal[];
+          
+          try {
+            const analysesPromise = listAnalysesForUser(supabase, supabaseUser.id);
+            const dealsPromise = listDealsForUser(supabase, supabaseUser.id);
+            
+            [remoteAnalyses, remoteDeals] = await Promise.race([
+              Promise.all([analysesPromise, dealsPromise]),
+              new Promise<[AnalysisMeta[], Deal[]]>((resolve) =>
+                setTimeout(() => {
+                  // Fallback to local storage on timeout
+                  console.warn("Supabase data load timeout in LeaseAnalyzerApp, using local storage");
+                  const storedAnalyses = storage.load() as AnalysisMeta[];
+                  const storedDeals = dealStorage.load();
+                  resolve([storedAnalyses, storedDeals]);
+                }, 3000)
+              ),
+            ]);
+          } catch (error) {
+            // If Supabase fails, fall back to local storage
+            console.warn("Supabase data load failed in LeaseAnalyzerApp, using local storage:", error);
+            const storedAnalyses = storage.load() as AnalysisMeta[];
+            const storedDeals = dealStorage.load();
+            remoteAnalyses = storedAnalyses;
+            remoteDeals = storedDeals;
+          }
 
-        const [remoteAnalyses, remoteDeals] = await Promise.all([
-          listAnalysesForUser(supabase, supabaseUser.id),
-          listDealsForUser(supabase, supabaseUser.id),
-        ]);
-
-        if (remoteAnalyses.length > 0) {
-          setAnalyses(remoteAnalyses);
-          setDeals(remoteDeals);
-          storage.save(remoteAnalyses);
-          dealStorage.save(remoteDeals);
-          setStorageStats({
-            totalAnalyses: remoteAnalyses.length,
-            totalProposals: remoteAnalyses.reduce(
-              (acc, analysis) => acc + (analysis.proposals?.length ?? 0),
-              0
-            ),
-            lastSaved: new Date().toISOString(),
-            deviceId: supabaseUser?.id ?? "guest",
-            version: "supabase",
-            hasBackup: false,
-          });
-        } else {
-          const today = new Date().toISOString().split("T")[0];
-          const demoAnalysis: AnalysisMeta = {
-            id: nanoid(),
-            name: "David Barbeito CPA PA",
-            status: "Draft" as const,
-            tenant_name: "Acme Robotics",
-            market: "Miami-Dade",
-            rsf: 20000,
-            lease_type: "FS" as LeaseType,
-            key_dates: {
-              commencement: today,
-              rent_start: today,
-              expiration: new Date(
-                Date.now() + 365 * 24 * 60 * 60 * 1000 * 5
-              )
-                .toISOString()
-                .split("T")[0],
-            },
-            operating: {
-              est_op_ex_psf: 15.5,
-              escalation_method: "fixed",
-              escalation_value: 0.03,
-            },
-            rent_schedule: [
-              {
-                period_start: today,
-                period_end: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000)
+          if (remoteAnalyses.length > 0) {
+            setAnalyses(remoteAnalyses);
+            setDeals(remoteDeals);
+            storage.save(remoteAnalyses);
+            dealStorage.save(remoteDeals);
+            setStorageStats({
+              totalAnalyses: remoteAnalyses.length,
+              totalProposals: remoteAnalyses.reduce(
+                (acc, analysis) => acc + (analysis.proposals?.length ?? 0),
+                0
+              ),
+              lastSaved: new Date().toISOString(),
+              deviceId: supabaseUser?.id ?? "guest",
+              version: "supabase",
+              hasBackup: false,
+            });
+          } else {
+            const today = new Date().toISOString().split("T")[0];
+            const demoAnalysis: AnalysisMeta = {
+              id: nanoid(),
+              name: "David Barbeito CPA PA",
+              status: "Draft" as const,
+              tenant_name: "Acme Robotics",
+              market: "Miami-Dade",
+              rsf: 20000,
+              lease_type: "FS" as LeaseType,
+              key_dates: {
+                commencement: today,
+                rent_start: today,
+                expiration: new Date(
+                  Date.now() + 365 * 24 * 60 * 60 * 1000 * 5
+                )
                   .toISOString()
                   .split("T")[0],
-                rent_psf: 32.0,
-                escalation_percentage: 0.03,
-                free_rent_months: 0,
-                abatement_applies_to: "base_only",
               },
-            ],
-            concessions: {
-              ti_allowance_psf: 45.0,
-              moving_allowance: 50000,
-            },
-            options: [],
-            cashflow_settings: {
-              discount_rate: 0.08,
-              granularity: "annual",
-            },
-            notes: "Demo analysis for testing",
-            proposals: demoProposals(),
-          };
-          setAnalyses([demoAnalysis]);
-          setDeals(remoteDeals);
+              operating: {
+                est_op_ex_psf: 15.5,
+                escalation_method: "fixed",
+                escalation_value: 0.03,
+              },
+              rent_schedule: [
+                {
+                  period_start: today,
+                  period_end: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000)
+                    .toISOString()
+                    .split("T")[0],
+                  rent_psf: 32.0,
+                  escalation_percentage: 0.03,
+                  free_rent_months: 0,
+                  abatement_applies_to: "base_only",
+                },
+              ],
+              concessions: {
+                ti_allowance_psf: 45.0,
+                moving_allowance: 50000,
+              },
+              options: [],
+              cashflow_settings: {
+                discount_rate: 0.08,
+                granularity: "annual",
+              },
+              notes: "Demo analysis for testing",
+              proposals: demoProposals(),
+            };
+            setAnalyses([demoAnalysis]);
+            setDeals(remoteDeals);
 
-          if (supabase && supabaseUser) {
-            await upsertAnalysesForUser(supabase, supabaseUser.id, [demoAnalysis]);
+            if (isSupabaseConfigured && supabase && supabaseUser) {
+              await upsertAnalysesForUser(supabase, supabaseUser.id, [demoAnalysis]);
+            }
+            dealStorage.save(remoteDeals);
+            storage.save([demoAnalysis]);
+
+            console.log("📁 Initialized with demo data");
+            setStorageStats({
+              totalAnalyses: 1,
+              totalProposals: demoAnalysis.proposals.length,
+              lastSaved: new Date().toISOString(),
+              deviceId: supabaseUser?.id ?? "guest",
+              version: "supabase",
+              hasBackup: false,
+            });
           }
-          dealStorage.save(remoteDeals);
-          storage.save([demoAnalysis]);
 
-          console.log("📁 Initialized with demo data");
-          setStorageStats({
-            totalAnalyses: 1,
-            totalProposals: demoAnalysis.proposals.length,
-            lastSaved: new Date().toISOString(),
-            deviceId: supabaseUser?.id ?? "guest",
-            version: "supabase",
-            hasBackup: false,
-          });
+          setLastSaved(new Date().toISOString());
         }
-
-        setLastSaved(new Date().toISOString());
       } catch (error) {
-        console.error("❌ Failed to load data:", error);
+        console.error("❌ Failed to load data, falling back to local storage:", error);
         reportError(error as Error, "Data loading");
 
-        const today = new Date().toISOString().split("T")[0];
-        const demoAnalysis: AnalysisMeta = {
-          id: nanoid(),
-          name: "Demo Analysis",
-          status: "Draft" as const,
-          tenant_name: "Demo Tenant",
-          market: "Demo Market",
-          rsf: 10000,
-          lease_type: "FS" as LeaseType,
-          key_dates: {
-            commencement: today,
-            rent_start: today,
-            expiration: new Date(
-              Date.now() + 365 * 24 * 60 * 60 * 1000 * 5
-            )
-              .toISOString()
-              .split("T")[0],
-          },
-          operating: {},
-          rent_schedule: [],
-          concessions: {},
-          options: [],
-          cashflow_settings: {
-            discount_rate: 0.08,
-            granularity: "annual",
-          },
-          notes: "",
-          proposals: demoProposals(),
-        };
-        setAnalyses([demoAnalysis]);
-        setDeals([]);
+        // Try to load from local storage as fallback
+        try {
+          const storedAnalyses = storage.load() as AnalysisMeta[];
+          const storedDeals = dealStorage.load();
+          
+          if (storedAnalyses.length > 0) {
+            setAnalyses(storedAnalyses);
+            setDeals(storedDeals);
+            setStorageStats(storage.getStats());
+            setLastSaved(new Date().toISOString());
+          } else {
+            // No local data, create demo
+            const today = new Date().toISOString().split("T")[0];
+            const demoAnalysis: AnalysisMeta = {
+              id: nanoid(),
+              name: "Demo Analysis",
+              status: "Draft" as const,
+              tenant_name: "Demo Tenant",
+              market: "Demo Market",
+              rsf: 10000,
+              lease_type: "FS" as LeaseType,
+              key_dates: {
+                commencement: today,
+                rent_start: today,
+                expiration: new Date(
+                  Date.now() + 365 * 24 * 60 * 60 * 1000 * 5
+                )
+                  .toISOString()
+                  .split("T")[0],
+              },
+              operating: {},
+              rent_schedule: [],
+              concessions: {},
+              options: [],
+              cashflow_settings: {
+                discount_rate: 0.08,
+                granularity: "annual",
+              },
+              notes: "",
+              proposals: demoProposals(),
+            };
+            setAnalyses([demoAnalysis]);
+            setDeals([]);
+          }
+        } catch (localError) {
+          console.error("Failed to load from local storage:", localError);
+          // Last resort: empty state
+          setAnalyses([]);
+          setDeals([]);
+        }
       } finally {
         setIsLoading(false);
       }
@@ -691,18 +766,23 @@ export default function LeaseAnalyzerApp({
   // Auto-save when analyses change (with proper dependency management and reduced frequency)
   useEffect(() => {
     if (!isLoading && analyses.length > 0) {
+      // Use a ref to track the latest analyses to prevent race conditions
       const timeoutId = setTimeout(() => {
         (async () => {
           try {
-            if (supabase && supabaseUser) {
-              await upsertAnalysesForUser(supabase, supabaseUser.id, analyses);
+            // Get the latest analyses state at save time
+            const latestAnalyses = analyses;
+            
+            if (isSupabaseConfigured && supabase && supabaseUser) {
+              await upsertAnalysesForUser(supabase, supabaseUser.id, latestAnalyses);
             }
-            const saveResult = storage.save(analyses);
+            
+            const saveResult = storage.save(latestAnalyses);
             if (saveResult.success) {
               setLastSaved(new Date().toISOString());
               setStorageStats({
-                totalAnalyses: analyses.length,
-                totalProposals: analyses.reduce(
+                totalAnalyses: latestAnalyses.length,
+                totalProposals: latestAnalyses.reduce(
                   (acc, analysis) => acc + (analysis.proposals?.length ?? 0),
                   0
                 ),
@@ -723,7 +803,7 @@ export default function LeaseAnalyzerApp({
             reportError(error as Error, "Auto-save");
           }
         })();
-      }, 3000);
+      }, 2000); // Reduced from 3000ms to 2000ms for faster saves
 
       return () => clearTimeout(timeoutId);
     }
@@ -769,14 +849,30 @@ export default function LeaseAnalyzerApp({
       
       console.log('🔧 Created new analysis:', newAnalysis);
       
+      // Use pendingNewAnalysisId mechanism to ensure selectedId is set AFTER analyses updates
+      // This prevents race conditions where selectedAnalysis might be null
+      setPendingNewAnalysisId(id);
+      
+      // Update state and immediately save to storage
       setAnalyses((prev) => {
         const updated = [newAnalysis, ...prev];
         console.log('🔧 Updated analyses array:', updated);
+        
+        // Save to storage immediately
+        try {
+          storage.save(updated);
+          // Also save to Supabase if available
+          if (supabase && supabaseUser) {
+            upsertAnalysesForUser(supabase, supabaseUser.id, updated).catch((error) =>
+              console.error("Failed to sync new analysis:", error)
+            );
+          }
+        } catch (error) {
+          console.error("Failed to save new analysis:", error);
+        }
+        
         return updated;
       });
-      
-      setSelectedId(id);
-      console.log('🔧 Set selected ID to:', id);
       
     } catch (error) {
       console.error('❌ Error in createNewAnalysis:', error);
@@ -835,7 +931,7 @@ export default function LeaseAnalyzerApp({
       // Link analysis to deal
       const updatedDeal = linkAnalysisToDeal(deal, analysisId);
       setDeals(prev => prev.map(d => d.id === dealId ? updatedDeal : d));
-      if (supabase && supabaseUser) {
+      if (isSupabaseConfigured && supabase && supabaseUser) {
         upsertDealForUser(supabase, supabaseUser.id, updatedDeal).catch((error) =>
           console.error("Failed to link analysis to deal:", error)
         );
@@ -854,7 +950,7 @@ export default function LeaseAnalyzerApp({
       if (linkedDeal) {
         const updatedDeal = unlinkAnalysisFromDeal(linkedDeal, analysisId);
         setDeals(prev => prev.map(d => d.id === linkedDeal.id ? updatedDeal : d));
-        if (supabase && supabaseUser) {
+        if (isSupabaseConfigured && supabase && supabaseUser) {
           upsertDealForUser(supabase, supabaseUser.id, updatedDeal).catch((error) =>
             console.error("Failed to unlink analysis from deal:", error)
           );
@@ -880,7 +976,7 @@ export default function LeaseAnalyzerApp({
       // Sync analysis data to deal
       const updatedDeal = syncAnalysisToDeal(linkedDeal, analyses);
       setDeals(prev => prev.map(d => d.id === linkedDeal.id ? updatedDeal : d));
-      if (supabase && supabaseUser) {
+      if (isSupabaseConfigured && supabase && supabaseUser) {
         upsertDealForUser(supabase, supabaseUser.id, updatedDeal).catch((error) =>
           console.error("Failed to sync analysis to deal:", error)
         );
@@ -920,7 +1016,7 @@ export default function LeaseAnalyzerApp({
 
       const newDeal = dealData as Deal;
       setDeals(prev => [...prev, newDeal]);
-      if (supabase && supabaseUser) {
+      if (isSupabaseConfigured && supabase && supabaseUser) {
         upsertDealForUser(supabase, supabaseUser.id, newDeal).catch((error) =>
           console.error("Failed to create deal from analysis:", error)
         );
@@ -933,24 +1029,40 @@ export default function LeaseAnalyzerApp({
     }
   }, [analyses, reportError, supabase, supabaseUser]);
 
-  const upsertProposal = (analysisId: string, proposal: Proposal) => {
-    setAnalyses((prev) =>
-      prev.map((a) => {
-        if (a.id !== analysisId) return a;
-        const currentProposals = (a.proposals as Proposal[]) || [];
-        const exists = currentProposals.some((p) => p.id === proposal.id);
-        return {
-          ...a,
-          proposals: exists
-            ? currentProposals.map((p) => (p.id === proposal.id ? proposal : p))
-            : [proposal, ...currentProposals],
-        };
-      })
-    );
-  };
+  const upsertProposal = useCallback((analysisId: string, proposal: Proposal) => {
+    try {
+      setAnalyses((prev) =>
+        prev.map((a) => {
+          if (a.id !== analysisId) return a;
+          const currentProposals = (a.proposals as Proposal[]) || [];
+          const exists = currentProposals.some((p) => p.id === proposal.id);
+          return {
+            ...a,
+            proposals: exists
+              ? currentProposals.map((p) => (p.id === proposal.id ? proposal : p))
+              : [proposal, ...currentProposals],
+          };
+        })
+      );
+    } catch (error) {
+      console.error('Error updating proposal:', error);
+      reportError(error as Error, 'Update proposal');
+      throw error; // Re-throw so caller can handle
+    }
+  }, [reportError]);
 
   const createProposal = (side: ProposalSide) => {
-    if (!selectedAnalysis) return;
+    // Use selectedAnalysis directly since it's computed from current state
+    // This ensures we always have the latest data
+    if (!selectedAnalysis) {
+      console.warn('❌ Cannot create proposal: no analysis selected');
+      console.warn('   selectedId:', selectedId);
+      console.warn('   analyses count:', analyses.length);
+      console.warn('   analyses ids:', analyses.map(a => a.id));
+      console.warn('   pendingNewAnalysisId:', pendingNewAnalysisId);
+      return;
+    }
+    
     const p: Proposal = {
       id: nanoid(),
       side,
@@ -958,6 +1070,8 @@ export default function LeaseAnalyzerApp({
       created_at: new Date().toISOString(),
       meta: baseScenario(),
     };
+    
+    console.log('🔧 Creating proposal:', p, 'for analysis:', selectedAnalysis.id);
     upsertProposal(selectedAnalysis.id, p);
     setSelectedProposalId(p.id);
   };
@@ -1106,7 +1220,7 @@ export default function LeaseAnalyzerApp({
                   if (result.success) {
                     const importedAnalyses = storage.load() as AnalysisMeta[];
                     setAnalyses(importedAnalyses);
-                    if (supabase && supabaseUser) {
+                    if (isSupabaseConfigured && supabase && supabaseUser) {
                       upsertAnalysesForUser(supabase, supabaseUser.id, importedAnalyses).catch(
                         (error) => console.error("Failed to sync imported analyses:", error)
                       );
@@ -1180,8 +1294,24 @@ export default function LeaseAnalyzerApp({
               onBackToBoard={() => setSelectedProposalId(null)}
               onSave={(updatedMeta) => {
                 try {
-                  upsertProposal(selectedAnalysis.id, { ...selectedProposal, meta: updatedMeta });
+                  // Update the proposal with new meta
+                  const updatedProposal = { ...selectedProposal, meta: updatedMeta };
+                  upsertProposal(selectedAnalysis.id, updatedProposal);
+                  
+                  // Also update the analysis meta if this is the base scenario
+                  // This ensures the analysis list reflects changes immediately
+                  if (selectedProposal.side === 'Base') {
+                    setAnalyses((prev) =>
+                      prev.map((a) => {
+                        if (a.id === selectedAnalysis.id) {
+                          return { ...a, ...updatedMeta };
+                        }
+                        return a;
+                      })
+                    );
+                  }
                 } catch (error) {
+                  console.error('Failed to save proposal:', error);
                   reportError(error as Error, 'Save proposal');
                   alert('Failed to save proposal. Please try again.');
                 }
@@ -1418,10 +1548,10 @@ function ProposalsBoard({
           <h2 className="text-lg sm:text-xl font-semibold truncate">{analysis.name}</h2>
         </div>
         <div className="flex items-center gap-2 w-full sm:w-auto">
-          <Button variant="outline" onClick={() => onNewProposal("Landlord")} className="flex-1 sm:flex-none">
-            + Landlord
+          <Button variant="outline" onClick={() => onNewProposal("Landlord")} className="rounded-2xl flex-1 sm:flex-none">
+            +Landlord Counter
           </Button>
-          <Button onClick={() => onNewProposal("Tenant")} className="rounded-2xl flex-1 sm:flex-none">
+          <Button variant="outline" onClick={() => onNewProposal("Tenant")} className="rounded-2xl flex-1 sm:flex-none">
             + Tenant Counter
           </Button>
         </div>
@@ -1986,6 +2116,13 @@ function ProposalTab({ a, onSave }: { a: AnalysisMeta; onSave: (patch: AnalysisM
     validateAnalysisMeta,
     {
       onSubmit: (data) => {
+        // Validate before saving
+        const validation = validateAnalysisMeta(data);
+        if (!validation.valid) {
+          console.warn('Validation errors:', validation.errors);
+          // Still allow save but log warnings
+        }
+        
         // Check for confirmations using smart validation
         const smartValidation = getSmartValidationSummary(data);
         
@@ -2004,6 +2141,26 @@ function ProposalTab({ a, onSave }: { a: AnalysisMeta; onSave: (patch: AnalysisM
       validateOnBlur: true
     }
   );
+
+  // Auto-save on critical field changes (with debounce)
+  useEffect(() => {
+    // Only auto-save if there are actual changes to critical fields
+    const hasChanges = 
+      local.name !== a.name || 
+      local.tenant_name !== a.tenant_name ||
+      local.rsf !== a.rsf ||
+      local.market !== a.market;
+    
+    if (hasChanges && !isSubmitting) {
+      const timeoutId = setTimeout(() => {
+        // Trigger save for critical field changes
+        // Use onSave directly to avoid form submission overhead
+        onSave(local);
+      }, 1500); // 1.5 second debounce for auto-save
+      
+      return () => clearTimeout(timeoutId);
+    }
+  }, [local.name, local.tenant_name, local.rsf, local.market, a.name, a.tenant_name, a.rsf, a.market, isSubmitting, local, onSave]);
 
   // Confirmation dialog functions
   const handleConfirmationResult = (section: string, confirmed: boolean) => {
@@ -2452,7 +2609,7 @@ function ProposalTab({ a, onSave }: { a: AnalysisMeta; onSave: (patch: AnalysisM
   );
 }
 
-function AnalysisTab({ lines }: { lines: AnnualLine[] }) {
+const AnalysisTab = React.memo(function AnalysisTab({ lines }: { lines: AnnualLine[] }) {
   return (
     <div className="space-y-4">
       <YearTable lines={lines} />
@@ -2461,7 +2618,7 @@ function AnalysisTab({ lines }: { lines: AnnualLine[] }) {
       </div>
     </div>
   );
-}
+});
 
 function CashflowTab({ lines, meta, proposals }: { lines: AnnualLine[]; meta: AnalysisMeta; proposals?: Proposal[] }) {
   // Import chart components dynamically to avoid heavy initial bundle

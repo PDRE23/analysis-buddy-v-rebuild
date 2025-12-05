@@ -32,9 +32,29 @@ export default function LoginPage() {
       await signIn({ email, password });
       router.replace("/app");
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Unable to sign in. Please try again."
-      );
+      // Don't show network errors to users - they're handled by fallback to local auth
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      const isNetworkError = 
+        errorMessage.toLowerCase().includes('fetch') ||
+        errorMessage.toLowerCase().includes('network') ||
+        errorMessage.toLowerCase().includes('failed to fetch') ||
+        errorMessage.toLowerCase().includes('name_not_resolved') ||
+        errorMessage.toLowerCase().includes('supabase unavailable');
+      
+      if (isNetworkError) {
+        // Network errors are handled by fallback to local auth
+        // If we get here, it means local auth also failed (invalid credentials)
+        setError("Invalid email or password. Please try again.");
+      } else {
+        // Show other errors (like invalid credentials)
+        setError(
+          errorMessage.includes("Invalid login credentials") || 
+          errorMessage.includes("Email not confirmed") ||
+          errorMessage.includes("User not found")
+            ? errorMessage
+            : "Unable to sign in. Please try again."
+        );
+      }
     } finally {
       setSubmitting(false);
     }

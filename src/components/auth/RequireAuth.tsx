@@ -1,7 +1,5 @@
 "use client";
 
-import { useEffect } from "react";
-import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 
 interface RequireAuthProps {
@@ -17,19 +15,15 @@ export function RequireAuth({
     </div>
   ),
 }: RequireAuthProps) {
-  const { user, loading } = useAuth();
-  const router = useRouter();
+  const { loading } = useAuth();
 
-  useEffect(() => {
-    if (!loading && !user) {
-      router.replace("/login");
-    }
-  }, [loading, router, user]);
-
-  if (loading || !user) {
+  // Show loading while auth is initializing
+  if (loading) {
     return loadingFallback;
   }
 
+  // Always allow access - authentication removed for now
+  // TODO: Re-implement authentication later
   return <>{children}</>;
 }
 

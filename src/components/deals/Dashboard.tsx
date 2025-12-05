@@ -15,6 +15,7 @@ import {
   LayoutList, 
   Kanban, 
   TrendingUp,
+  Clock,
 } from "lucide-react";
 import { VirtualizedList } from "@/components/ui/virtualized-list";
 
@@ -25,6 +26,7 @@ interface DashboardProps {
   onEditDeal: (deal: Deal) => void;
   onDeleteDeal: (deal: Deal) => void;
   onAddDeal: (stage?: DealStage) => void;
+  onOpenStatusUpdates?: () => void;
 }
 
 export function Dashboard({
@@ -34,6 +36,7 @@ export function Dashboard({
   onEditDeal,
   onDeleteDeal,
   onAddDeal,
+  onOpenStatusUpdates,
 }: DashboardProps) {
   const [view, setView] = useState<DealView>("kanban");
   const [searchQuery, setSearchQuery] = useState("");
@@ -166,10 +169,22 @@ export function Dashboard({
             </p>
           </div>
           
-          <Button onClick={() => onAddDeal()} className="gap-2">
-            <Plus className="h-4 w-4" />
-            New Deal
-          </Button>
+          <div className="flex items-center gap-2">
+            {onOpenStatusUpdates && (
+              <Button 
+                onClick={onOpenStatusUpdates} 
+                variant="outline" 
+                className="gap-2"
+              >
+                <Clock className="h-4 w-4" />
+                Update Statuses
+              </Button>
+            )}
+            <Button onClick={() => onAddDeal()} className="gap-2">
+              <Plus className="h-4 w-4" />
+              New Deal
+            </Button>
+          </div>
         </div>
 
         {/* Stats Cards */}
