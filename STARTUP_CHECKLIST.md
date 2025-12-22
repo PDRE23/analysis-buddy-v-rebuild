@@ -189,7 +189,21 @@ npm run lint -- --fix
 
 ## 📊 Health Check Script
 
-Run `.\health-check.ps1` for automated checks.
+**IMPORTANT: Manual Execution Only**
+
+The health check script (`.\health-check.ps1`) is designed for **manual execution only**. 
+It should NOT be configured to run automatically via:
+- Cursor tasks or startup hooks
+- VSCode tasks.json
+- File watchers or background processes
+- Any auto-run mechanism
+
+**To run manually:**
+```powershell
+.\health-check.ps1
+```
+
+The script is non-fatal and will always exit successfully, logging warnings for any issues found.
 
 ---
 

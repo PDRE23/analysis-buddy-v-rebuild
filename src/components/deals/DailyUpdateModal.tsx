@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Select } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { AlertCircle, CheckCircle2, Clock } from "lucide-react";
+import { AlertCircle, CheckCircle2, Clock, Edit, X } from "lucide-react";
 import type { Deal, DealStage } from "@/lib/types/deal";
 import type { DailyUpdate, DealUpdateStatus } from "@/lib/types/tracking";
 import { getDealsNeedingUpdates, saveDailyUpdate, hasDealBeenUpdatedToday } from "@/lib/dailyTracking";
@@ -34,6 +34,7 @@ export function DailyUpdateModal({
   const [updates, setUpdates] = useState<Record<string, Partial<DailyUpdate & { stage?: DealStage; notes?: string }>>>({});
   const [isSaving, setIsSaving] = useState(false);
   const [selectedDealId, setSelectedDealId] = useState<string | null>(null);
+  const [fadingOutDeals, setFadingOutDeals] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     if (isOpen) {
@@ -102,18 +103,84 @@ export function DailyUpdateModal({
     }
   };
 
+  // Handle "No Changes" button - saves immediately and fades out
+  const handleNoChanges = async (dealId: string) => {
+    const today = new Date().toISOString().split('T')[0];
+    setIsSaving(true);
+
+    try {
+      // Save daily update as "no_update"
+      const dailyUpdate: DailyUpdate = {
+        dealId,
+        date: today,
+        updateType: 'no_update',
+        timestamp: new Date().toISOString(),
+        userId,
+      };
+      saveDailyUpdate(dailyUpdate);
+
+      // Update deal's lastDailyUpdate field
+      if (onUpdateDeal) {
+        const deal = deals.find(d => d.id === dealId);
+        if (deal) {
+          const updatedDeal: Deal = {
+            ...deal,
+            lastDailyUpdate: today,
+            updatedAt: new Date().toISOString(),
+          };
+          onUpdateDeal(dealId, updatedDeal);
+        }
+      }
+
+      // Start fade out animation
+      setFadingOutDeals(prev => new Set(prev).add(dealId));
+
+      // Remove from list after animation completes
+      setTimeout(() => {
+        // Get fresh deals list to ensure we have the latest data
+        const refreshed = getDealsNeedingUpdates(deals, userId);
+        setDealsNeedingUpdates(refreshed);
+        setFadingOutDeals(prev => {
+          const next = new Set(prev);
+          next.delete(dealId);
+          return next;
+        });
+
+        // Check if all deals are now updated
+        const stillNeeding = refreshed.filter(d => d.needsUpdate);
+        if (stillNeeding.length === 0) {
+          onComplete();
+        }
+      }, 350); // Slightly longer than animation duration to ensure smooth transition
+    } catch (error) {
+      console.error('Failed to save update:', error);
+      alert('Failed to save update. Please try again.');
+      setFadingOutDeals(prev => {
+        const next = new Set(prev);
+        next.delete(dealId);
+        return next;
+      });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   // Save a single deal update
   const handleSaveSingleDeal = async (dealId: string) => {
     const today = new Date().toISOString().split('T')[0];
     const update = updates[dealId];
+    const deal = deals.find(d => d.id === dealId);
     
-    if (!update) {
+    if (!update || !deal) {
       return;
     }
 
     setIsSaving(true);
 
     try {
+      const now = new Date().toISOString();
+      let updatedDeal: Deal | null = null;
+
       // Save daily update if notes are provided
       if (update.notes) {
         const dailyUpdate: DailyUpdate = {
@@ -121,42 +188,101 @@ export function DailyUpdateModal({
           date: today,
           updateType: 'notes',
           notes: update.notes,
-          timestamp: new Date().toISOString(),
+          timestamp: now,
           userId,
         };
         saveDailyUpdate(dailyUpdate);
+
+        // Update deal's notes field and activities
+        updatedDeal = {
+          ...deal,
+          notes: update.notes, // Update notes field
+          lastDailyUpdate: today,
+          updatedAt: now,
+          activities: [
+            ...deal.activities,
+            {
+              id: nanoid(),
+              timestamp: now,
+              type: "note",
+              description: update.notes,
+              userId,
+            },
+          ],
+        };
+      } else {
+        // Even without notes, update lastDailyUpdate
+        updatedDeal = {
+          ...deal,
+          lastDailyUpdate: today,
+          updatedAt: now,
+        };
       }
 
       // Update deal stage if stage is changed
-      if (update.stage && onUpdateDealStage) {
-        const deal = deals.find(d => d.id === dealId);
-        if (deal && deal.stage !== update.stage) {
+      if (update.stage && deal.stage !== update.stage) {
+        if (onUpdateDealStage) {
           onUpdateDealStage(dealId, update.stage as DealStage);
+        }
+        // Also update in the deal object
+        if (updatedDeal) {
+          updatedDeal.stage = update.stage as DealStage;
+          updatedDeal.activities = [
+            ...(updatedDeal.activities || []),
+            {
+              id: nanoid(),
+              timestamp: now,
+              type: "stage_change",
+              description: `Stage changed to ${update.stage}`,
+              userId,
+            },
+          ];
         }
       }
 
-      // Refresh the list to reflect the update
-      const refreshed = getDealsNeedingUpdates(deals, userId);
-      setDealsNeedingUpdates(refreshed);
-      
-      // Remove the update from local state since it's saved
-      setUpdates(prev => {
-        const newUpdates = { ...prev };
-        delete newUpdates[dealId];
-        return newUpdates;
-      });
-
-      // Deselect the deal after saving
-      setSelectedDealId(null);
-
-      // Check if all deals are now updated
-      const stillNeeding = refreshed.filter(d => d.needsUpdate);
-      if (stillNeeding.length === 0) {
-        onComplete();
+      // Save the updated deal
+      if (updatedDeal && onUpdateDeal) {
+        onUpdateDeal(dealId, updatedDeal);
       }
+
+      // Start fade out animation
+      setFadingOutDeals(prev => new Set(prev).add(dealId));
+
+      // Remove from list after animation completes
+      setTimeout(() => {
+        // Get fresh deals list to ensure we have the latest data
+        const refreshed = getDealsNeedingUpdates(deals, userId);
+        setDealsNeedingUpdates(refreshed);
+        setFadingOutDeals(prev => {
+          const next = new Set(prev);
+          next.delete(dealId);
+          return next;
+        });
+
+        // Remove the update from local state since it's saved
+        setUpdates(prev => {
+          const newUpdates = { ...prev };
+          delete newUpdates[dealId];
+          return newUpdates;
+        });
+
+        // Deselect the deal after saving
+        setSelectedDealId(null);
+
+        // Check if all deals are now updated
+        const stillNeeding = refreshed.filter(d => d.needsUpdate);
+        if (stillNeeding.length === 0) {
+          onComplete();
+        }
+      }, 350); // Slightly longer than animation duration to ensure smooth transition
     } catch (error) {
       console.error('Failed to save update:', error);
       alert('Failed to save update. Please try again.');
+      setFadingOutDeals(prev => {
+        const next = new Set(prev);
+        next.delete(dealId);
+        return next;
+      });
     } finally {
       setIsSaving(false);
     }
@@ -318,26 +444,21 @@ export function DailyUpdateModal({
                 const hasUpdate =
                   !!update.updateType && update.updateType !== "no_update";
                 const isSelected = selectedDealId === dealStatus.dealId;
+                const isFadingOut = fadingOutDeals.has(dealStatus.dealId);
+                const deal = deals.find(d => d.id === dealStatus.dealId);
 
                 return (
                   <Card
                     key={dealStatus.dealId}
-                    className={`cursor-pointer transition-all ${
+                    className={`transition-all duration-300 ${
+                      isFadingOut ? 'opacity-0 scale-95 -translate-y-2 pointer-events-none' : 'opacity-100 scale-100 translate-y-0'
+                    } ${
                       isUpdated ? 'bg-green-50 border-green-200' : ''
                     } ${
                       dealStatus.isStale ? 'border-red-200 bg-red-50' : ''
                     } ${
                       isSelected ? 'ring-2 ring-blue-500 border-blue-500' : ''
                     }`}
-                    onClick={(e) => {
-                      // Don't toggle selection if clicking on interactive form elements
-                      const target = e.target as HTMLElement;
-                      if (target.closest('select, textarea, button, label, input')) {
-                        return;
-                      }
-                      // Allow clicking any deal to select it, even if already updated
-                      setSelectedDealId(dealStatus.dealId === selectedDealId ? null : dealStatus.dealId);
-                    }}
                   >
                     <CardContent className="py-4">
                       <div className="flex items-start justify-between mb-3">
@@ -360,6 +481,38 @@ export function DailyUpdateModal({
                             </p>
                           )}
                         </div>
+                        {/* Action buttons - always visible */}
+                        <div className="flex items-center gap-2 ml-4">
+                          {!isUpdated && (
+                            <>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleNoChanges(dealStatus.dealId);
+                                }}
+                                disabled={isSaving}
+                                className="text-xs"
+                              >
+                                No Changes
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="default"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setSelectedDealId(dealStatus.dealId === selectedDealId ? null : dealStatus.dealId);
+                                }}
+                                disabled={isSaving}
+                                className="text-xs"
+                              >
+                                <Edit className="h-3 w-3 mr-1" />
+                                Open/Edit
+                              </Button>
+                            </>
+                          )}
+                        </div>
                       </div>
 
                       {isSelected && (
@@ -370,7 +523,7 @@ export function DailyUpdateModal({
                               Deal Stage
                             </label>
                             <Select
-                              value={(updates[dealStatus.dealId]?.stage as string) || deals.find(d => d.id === dealStatus.dealId)?.stage || ''}
+                              value={(updates[dealStatus.dealId]?.stage as string) || deal?.stage || ''}
                               onChange={(e) => {
                                 e.stopPropagation();
                                 handleUpdateChange(
@@ -392,7 +545,7 @@ export function DailyUpdateModal({
                               Notes
                             </label>
                             <Textarea
-                              value={updates[dealStatus.dealId]?.notes || ''}
+                              value={updates[dealStatus.dealId]?.notes || deal?.notes || ''}
                               onChange={(e) => {
                                 e.stopPropagation();
                                 handleUpdateChange(
@@ -407,8 +560,19 @@ export function DailyUpdateModal({
                             />
                           </div>
 
-                          {/* Save Button */}
-                          <div className="flex justify-end pt-2">
+                          {/* Action Buttons */}
+                          <div className="flex justify-end gap-2 pt-2">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleNoChanges(dealStatus.dealId);
+                              }}
+                              disabled={isSaving}
+                            >
+                              No Changes
+                            </Button>
                             <Button
                               size="sm"
                               onClick={(e) => {
