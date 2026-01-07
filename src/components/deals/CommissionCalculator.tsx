@@ -63,6 +63,28 @@ export function CommissionCalculator({
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
+        {/* Commission Totals Summary */}
+        <div className="bg-muted/50 rounded-lg p-4 border">
+          <div className="flex items-center justify-between mb-2">
+            <Label className="text-sm font-semibold">Total Commission</Label>
+            <div className="text-2xl font-bold text-green-600">
+              {formatCommission(result.total)}
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground mt-2">
+            <div>Gross Commission:</div>
+            <div className="text-right">{formatCommission(result.breakdown.totalCommission)}</div>
+            {structure.splitPercentage > 0 && (
+              <>
+                <div>Split ({formatPercentage(structure.splitPercentage)}):</div>
+                <div className="text-right text-destructive">
+                  -{formatCommission(result.breakdown.splitAmount)}
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+
         {/* Presets */}
         <div>
           <Label>Quick Presets</Label>

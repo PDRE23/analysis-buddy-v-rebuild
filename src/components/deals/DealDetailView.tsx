@@ -89,10 +89,6 @@ export function DealDetailView({
               <p className="text-sm text-gray-600">{deal.clientCompany}</p>
             )}
           </div>
-          <Button onClick={() => onEdit(deal)} className="gap-2">
-            <Edit className="h-4 w-4" />
-            Edit Deal
-          </Button>
         </div>
 
         {/* Tab Navigation */}
@@ -145,7 +141,7 @@ export function DealDetailView({
       {/* Content */}
       <div className="flex-1 overflow-y-auto p-6">
         {activeTab === "overview" && (
-          <div className="space-y-6 max-w-4xl">
+          <div className="space-y-6">
             {/* Property Information */}
             <Card>
               <CardHeader>
@@ -270,6 +266,14 @@ export function DealDetailView({
                 </CardContent>
               </Card>
             )}
+
+            {/* Prominent Edit Button at Bottom */}
+            <div className="flex justify-center pt-6">
+              <Button onClick={() => onEdit(deal)} size="lg" variant="default" className="gap-2 font-semibold shadow-md min-w-[200px]">
+                <Edit className="h-5 w-5" />
+                Edit Deal
+              </Button>
+            </div>
           </div>
         )}
 

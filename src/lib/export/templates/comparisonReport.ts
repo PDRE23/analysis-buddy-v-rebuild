@@ -5,8 +5,12 @@
 
 import type { AnalysisData, CashflowLine } from "../pdf-export";
 import type { ExportConfig } from "../types";
-import { buildAnnualCashflow, effectiveRentPSF, npv } from "../../../components/LeaseAnalyzerApp";
-import type { Proposal } from "../../../components/LeaseAnalyzerApp";
+import type { Proposal } from "@/types";
+
+import { buildAnnualCashflow } from "../../../calculations/cashflow-engine";
+import { effectiveRentPSF } from "../../../calculations/metrics-engine";
+import { npv } from "../../../calculations/metrics-engine";
+
 
 export interface ComparisonReportData {
   proposals: Proposal[];

@@ -73,7 +73,7 @@ export function PipelineApp({
         id: supabaseUser.id,
         email: supabaseUser.email ?? "",
         name:
-          (supabaseUser.user_metadata?.full_name as string | undefined) ||
+          ('user_metadata' in supabaseUser && supabaseUser.user_metadata?.full_name) ||
           supabaseUser.email ||
           "User",
         role: "user",

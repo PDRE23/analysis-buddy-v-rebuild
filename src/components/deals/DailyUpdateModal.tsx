@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { AlertCircle, CheckCircle2, Clock, Edit, X } from "lucide-react";
 import type { Deal, DealStage } from "@/lib/types/deal";
 import type { DailyUpdate, DealUpdateStatus } from "@/lib/types/tracking";
-import { getDealsNeedingUpdates, saveDailyUpdate, hasDealBeenUpdatedToday } from "@/lib/dailyTracking";
+import { getDealsNeedingUpdates, saveDailyUpdate, hasDealBeenUpdatedToday, markDailyUpdatesCompleted } from "@/lib/dailyTracking";
 import { ALL_STAGES } from "@/lib/types/deal";
 import { nanoid } from "nanoid";
 
@@ -103,68 +103,6 @@ export function DailyUpdateModal({
     }
   };
 
-  // Handle "No Changes" button - saves immediately and fades out
-  const handleNoChanges = async (dealId: string) => {
-    const today = new Date().toISOString().split('T')[0];
-    setIsSaving(true);
-
-    try {
-      // Save daily update as "no_update"
-      const dailyUpdate: DailyUpdate = {
-        dealId,
-        date: today,
-        updateType: 'no_update',
-        timestamp: new Date().toISOString(),
-        userId,
-      };
-      saveDailyUpdate(dailyUpdate);
-
-      // Update deal's lastDailyUpdate field
-      if (onUpdateDeal) {
-        const deal = deals.find(d => d.id === dealId);
-        if (deal) {
-          const updatedDeal: Deal = {
-            ...deal,
-            lastDailyUpdate: today,
-            updatedAt: new Date().toISOString(),
-          };
-          onUpdateDeal(dealId, updatedDeal);
-        }
-      }
-
-      // Start fade out animation
-      setFadingOutDeals(prev => new Set(prev).add(dealId));
-
-      // Remove from list after animation completes
-      setTimeout(() => {
-        // Get fresh deals list to ensure we have the latest data
-        const refreshed = getDealsNeedingUpdates(deals, userId);
-        setDealsNeedingUpdates(refreshed);
-        setFadingOutDeals(prev => {
-          const next = new Set(prev);
-          next.delete(dealId);
-          return next;
-        });
-
-        // Check if all deals are now updated
-        const stillNeeding = refreshed.filter(d => d.needsUpdate);
-        if (stillNeeding.length === 0) {
-          onComplete();
-        }
-      }, 350); // Slightly longer than animation duration to ensure smooth transition
-    } catch (error) {
-      console.error('Failed to save update:', error);
-      alert('Failed to save update. Please try again.');
-      setFadingOutDeals(prev => {
-        const next = new Set(prev);
-        next.delete(dealId);
-        return next;
-      });
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
   // Save a single deal update
   const handleSaveSingleDeal = async (dealId: string) => {
     const today = new Date().toISOString().split('T')[0];
@@ -180,63 +118,66 @@ export function DailyUpdateModal({
     try {
       const now = new Date().toISOString();
       let updatedDeal: Deal | null = null;
+      const stageChanged = update.stage && deal.stage !== update.stage;
+      const hasNotes = update.notes && update.notes.trim().length > 0;
 
-      // Save daily update if notes are provided
-      if (update.notes) {
+      // Always save a daily update when saving (for stage change, notes, or both)
+      if (hasNotes || stageChanged) {
         const dailyUpdate: DailyUpdate = {
           dealId,
           date: today,
-          updateType: 'notes',
-          notes: update.notes,
+          updateType: hasNotes ? 'notes' : 'status',
+          notes: update.notes || undefined,
           timestamp: now,
           userId,
         };
         saveDailyUpdate(dailyUpdate);
-
-        // Update deal's notes field and activities
-        updatedDeal = {
-          ...deal,
-          notes: update.notes, // Update notes field
-          lastDailyUpdate: today,
-          updatedAt: now,
-          activities: [
-            ...deal.activities,
-            {
-              id: nanoid(),
-              timestamp: now,
-              type: "note",
-              description: update.notes,
-              userId,
-            },
-          ],
-        };
       } else {
-        // Even without notes, update lastDailyUpdate
-        updatedDeal = {
-          ...deal,
-          lastDailyUpdate: today,
-          updatedAt: now,
+        // Even if no notes or stage change, save as no_update to mark as reviewed
+        const dailyUpdate: DailyUpdate = {
+          dealId,
+          date: today,
+          updateType: 'no_update',
+          timestamp: now,
+          userId,
         };
+        saveDailyUpdate(dailyUpdate);
+      }
+
+      // Build updated deal object
+      updatedDeal = {
+        ...deal,
+        lastDailyUpdate: today,
+        updatedAt: now,
+        activities: [...deal.activities],
+      };
+
+      // Update notes if provided
+      if (hasNotes && update.notes) {
+        updatedDeal.notes = update.notes;
+        updatedDeal.activities.push({
+          id: nanoid(),
+          timestamp: now,
+          type: "note",
+          description: update.notes,
+          userId,
+        });
       }
 
       // Update deal stage if stage is changed
-      if (update.stage && deal.stage !== update.stage) {
+      if (stageChanged) {
+        updatedDeal.stage = update.stage as DealStage;
+        updatedDeal.activities.push({
+          id: nanoid(),
+          timestamp: now,
+          type: "stage_change",
+          description: `Stage changed to ${update.stage}`,
+          userId,
+        });
+        
+        // Also call the stage update callback
         if (onUpdateDealStage) {
           onUpdateDealStage(dealId, update.stage as DealStage);
-        }
-        // Also update in the deal object
-        if (updatedDeal) {
-          updatedDeal.stage = update.stage as DealStage;
-          updatedDeal.activities = [
-            ...(updatedDeal.activities || []),
-            {
-              id: nanoid(),
-              timestamp: now,
-              type: "stage_change",
-              description: `Stage changed to ${update.stage}`,
-              userId,
-            },
-          ];
         }
       }
 
@@ -293,8 +234,10 @@ export function DailyUpdateModal({
     setIsSaving(true);
 
     try {
-      // Validate all updates before saving
+      // Step 1: Save all updates the user has made
       const updatesToSave: DailyUpdate[] = [];
+      const updatedDealIds = new Set<string>();
+      
       for (const dealId in updates) {
         const update = updates[dealId];
         if (update && update.updateType) {
@@ -316,6 +259,7 @@ export function DailyUpdateModal({
             userId,
           };
           updatesToSave.push(dailyUpdate);
+          updatedDealIds.add(dealId);
         }
       }
 
@@ -328,45 +272,38 @@ export function DailyUpdateModal({
         }
       });
 
-      // Check if all deals are now updated
+      // Step 2: Mark all remaining deals (that still need updates) as "no_update"
       const stillNeeding = getDealsNeedingUpdates(deals, userId).filter(d => d.needsUpdate);
-      if (stillNeeding.length === 0) {
-        onComplete();
-      } else {
-        // Refresh the list
-        setDealsNeedingUpdates(getDealsNeedingUpdates(deals, userId));
-        // Clear saved updates from state
-        setUpdates({});
-      }
-    } catch (error) {
-      console.error('Failed to save updates:', error);
-      alert('Failed to save updates. Please try again.');
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  // Mark all deals as "no update" and save immediately
-  const handleMarkAllAsNoUpdate = async () => {
-    const today = new Date().toISOString().split('T')[0];
-    setIsSaving(true);
-
-    try {
-      // Save all deals that need updates as "no_update"
-      const dealsToUpdate = dealsNeedingUpdates.filter(d => d.needsUpdate);
       
-      for (const dealStatus of dealsToUpdate) {
-        const dailyUpdate: DailyUpdate = {
-          dealId: dealStatus.dealId,
-          date: today,
-          updateType: 'no_update',
-          timestamp: new Date().toISOString(),
-          userId,
-        };
-        saveDailyUpdate(dailyUpdate);
+      for (const dealStatus of stillNeeding) {
+        // Skip deals that were already saved in updatesToSave
+        if (!updatedDealIds.has(dealStatus.dealId)) {
+          const dailyUpdate: DailyUpdate = {
+            dealId: dealStatus.dealId,
+            date: today,
+            updateType: 'no_update',
+            timestamp: new Date().toISOString(),
+            userId,
+          };
+          saveDailyUpdate(dailyUpdate);
+          
+          // Update deal's lastDailyUpdate field
+          if (onUpdateDeal) {
+            const deal = deals.find(d => d.id === dealStatus.dealId);
+            if (deal) {
+              const updatedDeal: Deal = {
+                ...deal,
+                lastDailyUpdate: today,
+                updatedAt: new Date().toISOString(),
+              };
+              onUpdateDeal(dealStatus.dealId, updatedDeal);
+            }
+          }
+        }
       }
 
-      // Complete immediately
+      // Step 3: Mark as completed and close the modal (all deals are now updated)
+      markDailyUpdatesCompleted();
       onComplete();
     } catch (error) {
       console.error('Failed to save updates:', error);
@@ -376,14 +313,95 @@ export function DailyUpdateModal({
     }
   };
 
-  // Check if there are any valid updates ready to save
+  const handleSkip = async () => {
+    const today = new Date().toISOString().split('T')[0];
+    setIsSaving(true);
+
+    try {
+      // Mark all deals that still need updates as "no_update"
+      const stillNeeding = getDealsNeedingUpdates(deals, userId).filter(d => d.needsUpdate);
+      
+      for (const dealStatus of stillNeeding) {
+        const dailyUpdate: DailyUpdate = {
+          dealId: dealStatus.dealId,
+          date: today,
+          updateType: 'no_update',
+          timestamp: new Date().toISOString(),
+          userId,
+        };
+        saveDailyUpdate(dailyUpdate);
+        
+        // Update deal's lastDailyUpdate field
+        if (onUpdateDeal) {
+          const deal = deals.find(d => d.id === dealStatus.dealId);
+          if (deal) {
+            const updatedDeal: Deal = {
+              ...deal,
+              lastDailyUpdate: today,
+              updatedAt: new Date().toISOString(),
+            };
+            onUpdateDeal(dealStatus.dealId, updatedDeal);
+          }
+        }
+      }
+
+      // Mark as completed and close the modal
+      markDailyUpdatesCompleted();
+      onComplete();
+    } catch (error) {
+      console.error('Failed to skip updates:', error);
+      alert('Failed to skip updates. Please try again.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  // Check if user has made any changes (notes or stage) to any deal
+  const hasAnyChanges = Object.keys(updates).some(dealId => {
+    const update = updates[dealId];
+    const deal = deals.find(d => d.id === dealId);
+    if (!update || !deal) return false;
+    
+    // Check if notes have been entered (any non-empty notes means user made a change)
+    const hasNotes = update.notes !== undefined && update.notes.trim().length > 0;
+    
+    // Check if stage has been changed (different from original deal stage)
+    const stageChanged = update.stage !== undefined && update.stage !== deal.stage;
+    
+    return hasNotes || stageChanged;
+  });
+
+  // Check if there are any valid updates ready to save (with actual changes)
   const hasValidUpdates = Object.keys(updates).some(dealId => {
     const update = updates[dealId];
+    const dealStatus = dealsNeedingUpdates.find(d => d.dealId === dealId);
+    // Only check deals that still need updates
+    if (!dealStatus || !dealStatus.needsUpdate) return false;
     if (!update || !update.updateType) return false;
+    // Don't count 'no_update' as a valid update for the bulk save button
+    if (update.updateType === 'no_update') return false;
     // If status type is selected, status must be provided
     if (update.updateType === 'status' && !update.status) return false;
-    return true;
+    // Count notes or stage changes
+    if (update.notes && update.notes.trim().length > 0) return true;
+    if (update.stage) return true;
+    return false;
   });
+
+  // Count only valid updates that still need to be saved (excluding no_update and deals that are already updated)
+  const validUpdatesCount = Object.keys(updates).filter(dealId => {
+    const update = updates[dealId];
+    const dealStatus = dealsNeedingUpdates.find(d => d.dealId === dealId);
+    // Only count if deal still needs update and has a valid update (not just no_update)
+    if (!dealStatus || !dealStatus.needsUpdate) return false;
+    if (!update || !update.updateType) return false;
+    if (update.updateType === 'no_update') return false;
+    if (update.updateType === 'status' && !update.status) return false;
+    // Count notes or stage changes
+    if (update.notes && update.notes.trim().length > 0) return true;
+    if (update.stage) return true;
+    return false;
+  }).length;
 
   const allDealsUpdated = dealsNeedingUpdates.filter(d => d.needsUpdate).length === 0;
   const updatedCount = dealsNeedingUpdates.length - dealsNeedingUpdates.filter(d => d.needsUpdate).length;
@@ -403,7 +421,7 @@ export function DailyUpdateModal({
             Daily Deal Updates
           </CardTitle>
           <p className="text-sm text-gray-600 mt-2">
-            Please provide an update for each active deal. You can select &ldquo;No update&rdquo; if there&rsquo;s nothing new.
+            Please provide an update for each active deal. If you do not update a deal, it will be assumed there are no updates for that deal.
           </p>
           <div className="flex items-center gap-2 mt-4">
             <Badge variant={allDealsUpdated ? "default" : "secondary"}>
@@ -415,19 +433,6 @@ export function DailyUpdateModal({
               </Badge>
             )}
           </div>
-          {/* Quick action button to mark all as no update and save */}
-          {dealsNeedingCount > 0 && (
-            <div className="mt-4">
-              <Button
-                variant="outline"
-                onClick={handleMarkAllAsNoUpdate}
-                disabled={isSaving}
-                className="w-full sm:w-auto"
-              >
-                {isSaving ? 'Saving...' : `Mark All as No Update & Save (${dealsNeedingCount} deals)`}
-              </Button>
-            </div>
-          )}
         </CardHeader>
 
         <CardContent className="flex-1 overflow-y-auto space-y-4">
@@ -483,34 +488,20 @@ export function DailyUpdateModal({
                         </div>
                         {/* Action buttons - always visible */}
                         <div className="flex items-center gap-2 ml-4">
-                          {!isUpdated && (
-                            <>
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleNoChanges(dealStatus.dealId);
-                                }}
-                                disabled={isSaving}
-                                className="text-xs"
-                              >
-                                No Changes
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="default"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setSelectedDealId(dealStatus.dealId === selectedDealId ? null : dealStatus.dealId);
-                                }}
-                                disabled={isSaving}
-                                className="text-xs"
-                              >
-                                <Edit className="h-3 w-3 mr-1" />
-                                Open/Edit
-                              </Button>
-                            </>
+                          {!isUpdated && !isSelected && (
+                            <Button
+                              size="sm"
+                              variant="default"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setSelectedDealId(dealStatus.dealId === selectedDealId ? null : dealStatus.dealId);
+                              }}
+                              disabled={isSaving}
+                              className="text-xs"
+                            >
+                              <Edit className="h-3 w-3 mr-1" />
+                              Update
+                            </Button>
                           )}
                         </div>
                       </div>
@@ -564,24 +555,13 @@ export function DailyUpdateModal({
                           <div className="flex justify-end gap-2 pt-2">
                             <Button
                               size="sm"
-                              variant="outline"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleNoChanges(dealStatus.dealId);
-                              }}
-                              disabled={isSaving}
-                            >
-                              No Changes
-                            </Button>
-                            <Button
-                              size="sm"
                               onClick={(e) => {
                                 e.stopPropagation();
                                 handleSaveSingleDeal(dealStatus.dealId);
                               }}
                               disabled={isSaving}
                             >
-                              {isSaving ? 'Saving...' : 'Save Changes'}
+                              {isSaving ? 'Saving...' : 'Save Updates'}
                             </Button>
                           </div>
                         </div>
@@ -602,12 +582,21 @@ export function DailyUpdateModal({
           >
             Cancel
           </Button>
-          <Button
-            onClick={handleSave}
-            disabled={isSaving || !hasValidUpdates}
-          >
-            {isSaving ? 'Saving...' : allDealsUpdated ? 'Save' : `Save Updates (${Object.keys(updates).length} ready)`}
-          </Button>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              onClick={handleSkip}
+              disabled={isSaving || allDealsUpdated}
+            >
+              Skip
+            </Button>
+            <Button
+              onClick={handleSave}
+              disabled={isSaving || allDealsUpdated}
+            >
+              {isSaving ? 'Saving...' : allDealsUpdated ? 'Save' : validUpdatesCount > 0 ? `Save Updates (${validUpdatesCount} ready)` : 'Save Updates'}
+            </Button>
+          </div>
         </div>
       </Card>
     </div>

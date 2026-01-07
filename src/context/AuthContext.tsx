@@ -47,17 +47,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     // If Supabase is not configured, use local auth immediately
     if (!isSupabaseConfigured || !supabaseBrowserClient) {
-      getLocalSession().then((localSession) => {
-        if (localSession) {
-          setUser(localSession.user as CompatibleUser);
-          setDealStorageUser(localSession.user.id);
-          setAnalysisStorageUser(localSession.user.id);
-        } else {
+      getLocalSession()
+        .then((localSession) => {
+          if (localSession) {
+            setUser(localSession.user as CompatibleUser);
+            setDealStorageUser(localSession.user.id);
+            setAnalysisStorageUser(localSession.user.id);
+          } else {
+            setDealStorageUser(undefined);
+            setAnalysisStorageUser(undefined);
+          }
+          setLoading(false);
+        })
+        .catch((error) => {
+          console.warn("Error loading local session:", error);
           setDealStorageUser(undefined);
           setAnalysisStorageUser(undefined);
-        }
-        setLoading(false);
-      });
+          setLoading(false);
+        });
       return;
     }
 
@@ -67,18 +74,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const fallbackToLocal = () => {
       if (!isMounted) return;
-      getLocalSession().then((localSession) => {
-        if (!isMounted) return;
-        if (localSession) {
-          setUser(localSession.user as CompatibleUser);
-          setDealStorageUser(localSession.user.id);
-          setAnalysisStorageUser(localSession.user.id);
-        } else {
+      getLocalSession()
+        .then((localSession) => {
+          if (!isMounted) return;
+          if (localSession) {
+            setUser(localSession.user as CompatibleUser);
+            setDealStorageUser(localSession.user.id);
+            setAnalysisStorageUser(localSession.user.id);
+          } else {
+            setDealStorageUser(undefined);
+            setAnalysisStorageUser(undefined);
+          }
+          setLoading(false);
+        })
+        .catch((error) => {
+          if (!isMounted) return;
+          console.warn("Error loading local session in fallback:", error);
           setDealStorageUser(undefined);
           setAnalysisStorageUser(undefined);
-        }
-        setLoading(false);
-      });
+          setLoading(false);
+        });
     };
 
     const trySupabase = async () => {
@@ -90,6 +105,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           fallbackToLocal();
         }, 2000); // 2 second timeout
 
+        if (!supabaseBrowserClient) {
+          fallbackToLocal();
+          return;
+        }
+        
         const sessionPromise = supabaseBrowserClient.auth.getSession().catch((err) => {
           // Catch and suppress Supabase fetch errors
           const errorMsg = err?.message?.toLowerCase() || '';
@@ -135,29 +155,49 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     trySupabase();
 
-    const {
-      data: { subscription },
-    } = supabaseBrowserClient.auth.onAuthStateChange((_event, newSession) => {
-      if (!isMounted) return;
+    // Set up auth state change listener only if Supabase is configured
+    let subscription: { unsubscribe: () => void } | null = null;
+    if (supabaseBrowserClient) {
       try {
-        setSession(newSession);
-        setUser(newSession?.user ?? null);
-        setLoading(false);
-        setDealStorageUser(newSession?.user?.id);
-        setAnalysisStorageUser(newSession?.user?.id);
-      } catch (error: any) {
-        // Suppress network errors in auth state change handler
-        const errorMsg = error?.message?.toLowerCase() || '';
-        if (!errorMsg.includes('fetch') && !errorMsg.includes('network')) {
-          console.error("Error in auth state change handler:", error);
-        }
+        const {
+          data: { subscription: sub },
+        } = supabaseBrowserClient.auth.onAuthStateChange((_event, newSession) => {
+          if (!isMounted) return;
+          try {
+            setSession(newSession);
+            setUser(newSession?.user ?? null);
+            setLoading(false);
+            setDealStorageUser(newSession?.user?.id);
+            setAnalysisStorageUser(newSession?.user?.id);
+          } catch (error: any) {
+            // Suppress network errors in auth state change handler
+            const errorMsg = error?.message?.toLowerCase() || '';
+            if (!errorMsg.includes('fetch') && !errorMsg.includes('network')) {
+              console.error("Error in auth state change handler:", error);
+            }
+          }
+        });
+        subscription = sub;
+      } catch (error) {
+        console.warn("Failed to set up auth state change listener, using local auth only:", error);
+        // If setting up the listener fails, ensure we still finish loading
+        fallbackToLocal();
       }
-    });
+    }
+
+    // Safety timeout: ensure loading always completes
+    const safetyTimeout = setTimeout(() => {
+      if (isMounted) {
+        console.warn("Auth initialization timeout, forcing loading to complete");
+        setLoading(false);
+      }
+    }, 5000); // 5 second absolute timeout
 
     return () => {
       isMounted = false;
+      clearTimeout(safetyTimeout);
       if (fallbackTimeout) clearTimeout(fallbackTimeout);
-      subscription.unsubscribe();
+      if (subscription) subscription.unsubscribe();
     };
   }, []);
 

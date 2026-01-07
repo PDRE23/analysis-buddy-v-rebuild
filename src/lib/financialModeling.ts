@@ -3,8 +3,8 @@
  * Advanced financial calculations: IRR, sensitivity analysis, break-even
  */
 
-import type { AnnualLine } from "../components/LeaseAnalyzerApp";
-import { npv } from "../components/LeaseAnalyzerApp";
+import type { AnnualLine } from "@/types";
+import { npv } from "./calculations/metrics-engine";
 
 /**
  * Calculate Internal Rate of Return (IRR)
@@ -239,5 +239,60 @@ export function calculateIRRComparison(
       npv: npvValue,
     };
   });
+}
+
+/**
+ * Landlord Yield Metrics
+ */
+export interface LandlordYieldMetrics {
+  npv: number;
+  irr: number;
+  cashOnCashReturn: number;
+  yieldOnCost: number; // annual cashflow / initial investment
+  equityMultiple: number; // total return / initial investment
+  paybackPeriod: number;
+  netYield: number; // average annual return / initial investment
+}
+
+/**
+ * Calculate comprehensive landlord yield metrics
+ */
+export function calculateLandlordYield(
+  cashflows: AnnualLine[],
+  initialInvestment: number,
+  discountRate: number = 0.08
+): LandlordYieldMetrics {
+  const cashflowArray = cashflows.map(cf => cf.net_cash_flow);
+  const irrValue = calculateIRR(cashflowArray);
+  const npvValue = npv(cashflows, discountRate);
+  
+  const totalCashFlow = cashflows.reduce((acc, line) => acc + line.net_cash_flow, 0);
+  const averageAnnualCashflow = cashflows.length > 0 ? totalCashFlow / cashflows.length : 0;
+  
+  // Calculate payback period
+  let cumulative = 0;
+  let paybackYear = cashflows.length;
+  for (let i = 0; i < cashflows.length; i++) {
+    cumulative += cashflows[i].net_cash_flow;
+    if (cumulative >= 0) {
+      paybackYear = i + 1;
+      break;
+    }
+  }
+  
+  const cashOnCashReturn = initialInvestment !== 0 ? totalCashFlow / Math.abs(initialInvestment) : 0;
+  const yieldOnCost = initialInvestment !== 0 ? averageAnnualCashflow / Math.abs(initialInvestment) : 0;
+  const equityMultiple = initialInvestment !== 0 ? totalCashFlow / Math.abs(initialInvestment) : 0;
+  const netYield = initialInvestment !== 0 ? averageAnnualCashflow / Math.abs(initialInvestment) : 0;
+  
+  return {
+    npv: npvValue,
+    irr: irrValue ? irrValue * 100 : 0, // Convert to percentage
+    cashOnCashReturn: cashOnCashReturn * 100, // Convert to percentage
+    yieldOnCost: yieldOnCost * 100, // Convert to percentage
+    equityMultiple,
+    paybackPeriod: paybackYear,
+    netYield: netYield * 100, // Convert to percentage
+  };
 }
 

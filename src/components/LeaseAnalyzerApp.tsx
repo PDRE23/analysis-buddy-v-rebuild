@@ -1,13 +1,13 @@
 "use client";
 
-import React, { useMemo, useState, useEffect, useCallback } from "react";
+import React, { useMemo, useState, useEffect, useCallback, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Upload, FileDown, Download, Copy, Save, Trash2, ArrowLeft, ChevronRight, AlertCircle, Presentation } from "lucide-react";
+import { Plus, Upload, FileDown, Download, Copy, Save, Trash2, ArrowLeft, ChevronRight, AlertCircle, Presentation, Printer } from "lucide-react";
 import { nanoid } from "nanoid";
 import { storage } from "@/lib/storage";
 import { useAuth } from "@/context/AuthContext";
@@ -28,11 +28,16 @@ import { ErrorBoundary, useErrorHandler } from "@/components/ErrorBoundary";
 import { AsyncErrorBoundary } from "@/components/AsyncErrorBoundary";
 import { ClientOnly } from "@/components/ClientOnly";
 import { ExportDialog } from "@/components/export/ExportDialog";
+import { calculateLeaseTermYears } from "@/lib/leaseTermCalculations";
+import { Textarea } from "@/components/ui/textarea";
+import { File, X } from "lucide-react";
 import { DuplicateDialog, applyDuplicateOptions } from "@/components/ui/duplicate-dialog";
 import type { DuplicateOptions } from "@/components/ui/duplicate-dialog";
 import { CommissionCalculator } from "@/components/deals/CommissionCalculator";
 import type { CommissionStructure } from "@/lib/commission";
 import { exportAnalysis } from "@/lib/export";
+import { calculateTIShortfall, calculateEarlyTerminationFee, buildTerminationScenario } from "@/lib/calculations";
+import { calculateLandlordYield } from "@/lib/financialModeling";
 import type { ExportConfig } from "@/lib/export/types";
 import type { AnalysisData, CashflowLine } from "@/lib/export/pdf-export";
 import type { Deal } from "@/lib/types/deal";
@@ -46,6 +51,8 @@ import {
   syncAnalysisToDeal
 } from "@/lib/dealAnalysisSync";
 import { NERAnalysisView } from "@/components/analysis/NERAnalysisView";
+import { DealTermsSummaryCard } from "@/components/analysis/DealTermsSummaryCard";
+import { DetailedCashflowTable } from "@/components/analysis/DetailedCashflowTable";
 import type { NERAnalysis } from "@/lib/types/ner";
 import { PresentationMode } from "@/components/presentation/PresentationMode";
 import { 
@@ -55,6 +62,8 @@ import {
 } from "@/lib/aiInsights";
 import { InsightPanel } from "@/components/ui/insight-badge";
 import { getMarketBasedSuggestions } from "@/lib/intelligentDefaults";
+import { buildAnnualCashflow } from "@/lib/calculations/cashflow-engine";
+import { npv, effectiveRentPSF } from "@/lib/calculations/metrics-engine";
 import {
   DndContext,
   closestCenter,
@@ -86,8 +95,25 @@ interface RentRow {
   period_end: string;   // ISO date
   rent_psf: number;     // Base rent $/RSF/year
   escalation_percentage?: number; // Annual escalation (e.g., 0.03 for 3%)
-  free_rent_months?: number; // Free rent period applied at period start
-  abatement_applies_to?: "base_only" | "base_plus_nnn"; // What the free rent abates
+}
+
+interface AbatementPeriod {
+  period_start: string; // ISO date - when abatement starts
+  period_end: string;   // ISO date - when abatement ends
+  free_rent_months: number; // Number of free rent months in this period
+  abatement_applies_to: "base_only" | "base_plus_nnn"; // What the free rent abates
+}
+
+interface EscalationPeriod {
+  period_start: string; // ISO date - when escalation period starts
+  period_end: string;   // ISO date - when escalation period ends
+  escalation_percentage: number; // Escalation rate for this period (e.g., 0.03 for 3%)
+}
+
+interface OpExEscalationPeriod {
+  period_start: string; // ISO date - when escalation period starts
+  period_end: string;   // ISO date - when escalation period ends
+  escalation_percentage: number; // Escalation rate for this period (e.g., 0.03 for 3%)
 }
 
 interface OptionRow {
@@ -95,6 +121,12 @@ interface OptionRow {
   window_open: string; // ISO
   window_close: string; // ISO
   terms?: string;
+  // New fields for termination options:
+  notice_months?: number; // required notice period
+  fee_months_of_rent?: number; // fee = X months of then-current rent
+  base_rent_penalty?: number; // additional penalty as $/RSF
+  unamortized_costs_included?: boolean; // whether to include unamortized TI/free rent
+  termination_interest_rate?: number; // interest rate for PV amortization (default 8%)
 }
 
 export interface AnalysisMeta extends Record<string, unknown> {
@@ -104,26 +136,49 @@ export interface AnalysisMeta extends Record<string, unknown> {
   tenant_name: string;
   market: string;
   rsf: number; // rentable square feet
+  usf?: number; // usable square feet
+  load_factor?: number; // RSF/USF ratio (e.g., 1.15 for 15% load)
   lease_type: LeaseType;
+  rep_type?: "Occupier" | "Landlord"; // Rep type for lease analysis
   base_year?: number; // for FS
-  expense_stop_psf?: number; // for NNN
   key_dates: {
     commencement: string; // ISO date
-    rent_start: string; // ISO date
-    expiration: string; // ISO date
+    rent_start?: string; // ISO date (optional, can be auto-calculated)
+    expiration: string; // ISO date (auto-calculated from lease_term)
     early_access?: string; // ISO date
+  };
+  lease_term?: {
+    years: number;
+    months: number; // Base months (not including abatement)
+    include_abatement_in_term?: boolean; // Toggle to include/exclude abatement months
   };
   operating: {
     est_op_ex_psf?: number;
-    escalation_method?: "fixed" | "cpi";
+    escalation_method?: "fixed" | "cpi"; // Keep for backward compatibility
     escalation_value?: number; // e.g., 0.03 for 3% or CPI base
     escalation_cap?: number; // optional cap (e.g., 0.05)
+    // New escalation configuration
+    escalation_type?: "fixed" | "custom";
+    escalation_periods?: OpExEscalationPeriod[]; // For "custom" mode
   };
   rent_schedule: RentRow[];
+  // Rent escalation configuration
+  rent_escalation?: {
+    escalation_type?: "fixed" | "custom";
+    fixed_escalation_percentage?: number; // For "fixed" mode
+    escalation_periods?: EscalationPeriod[]; // For "custom" mode
+  };
   concessions: {
     ti_allowance_psf?: number;
+    ti_actual_build_cost_psf?: number; // actual cost to build
+    ti_benchmark_cost_psf?: number; // market benchmark
     moving_allowance?: number;
     other_credits?: number;
+    // Abatement configuration
+    abatement_type?: "at_commencement" | "custom";
+    abatement_free_rent_months?: number; // For "at_commencement" mode
+    abatement_applies_to?: "base_only" | "base_plus_nnn"; // For "at_commencement" mode
+    abatement_periods?: AbatementPeriod[]; // For "custom" mode
   };
   parking?: {
     monthly_rate_per_stall?: number;
@@ -131,12 +186,33 @@ export interface AnalysisMeta extends Record<string, unknown> {
     escalation_method?: "fixed" | "cpi";
     escalation_value?: number;
   };
+  transaction_costs?: {
+    legal_fees?: number;
+    brokerage_fees?: number; // separate from commission structure
+    due_diligence?: number;
+    environmental?: number;
+    other?: number;
+    total?: number; // calculated sum
+  };
   options: OptionRow[];
   cashflow_settings: {
     discount_rate: number; // e.g., 0.08
     granularity: "annual" | "monthly";
   };
+  financing?: {
+    amortize_ti: boolean; // amortize TI over lease term
+    amortize_free_rent: boolean; // amortize free rent over lease term
+    amortize_transaction_costs: boolean; // amortize transaction costs
+    amortization_method: "straight_line" | "present_value"; // method
+    interest_rate?: number; // for PV amortization
+  };
   notes?: string;
+  attachedFiles?: Array<{
+    name: string;
+    size: number;
+    type: string;
+    file: File;
+  }>;
   commissionStructure?: CommissionStructure;
   proposals: Proposal[];
 }
@@ -171,148 +247,18 @@ export interface AnnualLine {
   operating: number; // passthroughs modeled
   parking: number; // annualized parking cost
   other_recurring: number; // reserved for future
+  ti_shortfall?: number; // TI shortfall (one-time cost, typically year 1)
+  transaction_costs?: number; // transaction costs (one-time cost, typically year 1)
+  amortized_costs?: number; // amortized deal costs
   subtotal: number; // base_rent + operating + parking + other_recurring
-  net_cash_flow: number; // subtotal + abatement_credit (TI/moving NOT netted in)
+  net_cash_flow: number; // subtotal + abatement_credit + ti_shortfall + transaction_costs + amortized_costs (TI/moving NOT netted in)
 }
 type AnnualLineNumericKey = Exclude<keyof AnnualLine, "year">;
 
-/** Apply CPI or fixed escalation to a base value for N periods. */
-function escalate(value: number, n: number, method: "fixed" | "cpi" = "fixed", rate = 0): number {
-  if (n <= 0) return value;
-  const r = Math.max(0, rate);
-  return value * Math.pow(1 + r, n); // CPI treated as provided rate
-}
-
-/** Return number of months overlapping [start, end) within [a,b). */
-function overlappingMonths(start: Date, end: Date, a: Date, b: Date): number {
-  const s = new Date(Math.max(start.getTime(), a.getTime()));
-  const e = new Date(Math.min(end.getTime(), b.getTime()));
-  if (e <= s) return 0;
-  const months = (e.getFullYear() - s.getFullYear()) * 12 + (e.getMonth() - s.getMonth());
-  return Math.max(0, months + 1); // count partial months
-}
-
-export function buildAnnualCashflow(a: AnalysisMeta): AnnualLine[] {
-  const commencement = new Date(a.key_dates.commencement);
-  const expiration = new Date(a.key_dates.expiration);
-
-  const years: number[] = [];
-  for (let y = commencement.getFullYear(); y <= expiration.getFullYear(); y++) years.push(y);
-
-  const lines: AnnualLine[] = years.map((y) => ({
-    year: y,
-    base_rent: 0,
-    abatement_credit: 0,
-    operating: 0,
-    parking: 0,
-    other_recurring: 0,
-    subtotal: 0,
-    net_cash_flow: 0,
-  }));
-
-  const rsf = a.rsf;
-  const addToYear = (year: number, field: AnnualLineNumericKey, amount: number) => {
-    const row = lines.find((r) => r.year === year);
-    if (row) row[field] = (row[field] as number) + amount;
-  };
-
-  // Base Rent & Abatement
-  for (const r of a.rent_schedule) {
-    const ps = new Date(r.period_start);
-    const pe = new Date(r.period_end);
-    const periodStartYear = ps.getFullYear();
-    
-    for (const y of years) {
-      const ys = new Date(`${y}-01-01T00:00:00`);
-      const ye = new Date(`${y}-12-31T23:59:59`);
-      const months = overlappingMonths(ps, pe, ys, ye);
-      if (months === 0) continue;
-      
-      // Calculate escalated rent for this year within the period
-      const yearsInPeriod = y - periodStartYear;
-      const escalationRate = r.escalation_percentage ?? 0;
-      const escalatedRate = r.rent_psf * Math.pow(1 + escalationRate, yearsInPeriod);
-      const annualRentForMonths = (escalatedRate * rsf * months) / 12;
-      addToYear(y, "base_rent", annualRentForMonths);
-
-      // Apply free rent at the beginning of the period
-      // Free rent only applies in the first year of the period
-      if (y === periodStartYear) {
-        const freeMonths = clamp(r.free_rent_months ?? 0, 0, 12);
-        if (freeMonths > 0) {
-          const baseAbateAmt = (r.rent_psf * rsf * freeMonths) / 12;
-          addToYear(y, "abatement_credit", -baseAbateAmt);
-        }
-      }
-    }
-  }
-
-  // Operating pass-throughs
-  const baseOp = a.operating.est_op_ex_psf ?? 0;
-  const method = a.operating.escalation_method ?? "fixed";
-  const value = a.operating.escalation_value ?? 0;
-  const startYear = new Date(a.key_dates.commencement).getFullYear();
-
-  for (const y of years) {
-    const yearsSinceStart = y - startYear;
-    const escalatedOp = escalate(baseOp, yearsSinceStart, method, value);
-    if (a.lease_type === "FS") {
-      const baseYear = a.base_year ?? startYear;
-      const baseYearIndex = Math.max(0, y - baseYear);
-      const baseYearOp = escalate(baseOp, baseYearIndex, method, value);
-      const passthrough = Math.max(0, escalatedOp - baseYearOp) * rsf;
-      addToYear(y, "operating", passthrough);
-    } else {
-      const stop = a.expense_stop_psf ?? 0;
-      const passthrough = Math.max(0, escalatedOp - stop) * rsf;
-      addToYear(y, "operating", passthrough);
-    }
-    
-    // Apply operating expense abatement if free rent applies to base_plus_nnn
-    for (const r of a.rent_schedule) {
-      const ps = new Date(r.period_start);
-      const periodStartYear = ps.getFullYear();
-      
-      if (y === periodStartYear && r.abatement_applies_to === "base_plus_nnn") {
-        const freeMonths = clamp(r.free_rent_months ?? 0, 0, 12);
-        if (freeMonths > 0) {
-          const opAbateAmt = (escalatedOp * rsf * freeMonths) / 12;
-          addToYear(y, "abatement_credit", -opAbateAmt);
-        }
-      }
-    }
-  }
-
-  // Parking costs (annualized)
-  if (a.parking?.monthly_rate_per_stall && a.parking.stalls) {
-    const pr = a.parking.monthly_rate_per_stall;
-    const stalls = a.parking.stalls;
-    const pm = a.parking.escalation_method ?? "fixed";
-    const pv = a.parking.escalation_value ?? 0;
-    for (let i = 0; i < years.length; i++) {
-      const y = years[i];
-      const escalatedMonthly = escalate(pr, i, pm, pv);
-      addToYear(y, "parking", escalatedMonthly * 12 * stalls);
-    }
-  }
-
-  for (const row of lines) {
-    row.subtotal = row.base_rent + row.operating + row.parking + row.other_recurring;
-    row.net_cash_flow = row.subtotal + row.abatement_credit; // only abatement nets into NCF
-  }
-
-  return lines;
-}
-
-export function npv(lines: AnnualLine[], discountRate: number): number {
-  return lines.reduce((acc, row, i) => acc + row.net_cash_flow / Math.pow(1 + discountRate, i + 1), 0);
-}
-
-export function effectiveRentPSF(lines: AnnualLine[], rsf: number, years: number): number {
-  const totalNCF = lines.reduce((acc, r) => acc + r.net_cash_flow, 0);
-  const denom = Math.max(1, rsf) * Math.max(1, years);
-  return totalNCF / denom;
-}
+/*************************************************
+ * Calc Engine (moved to lib/calculations/cashflow-engine.ts)
+ * Metrics (moved to lib/calculations/metrics-engine.ts)
+ *************************************************/
 
 /*************************************************
  * Demo Data
@@ -327,10 +273,8 @@ const baseScenario = (): AnalysisMeta => ({
   rsf: 20000,
   lease_type: "FS",
   base_year: 2026,
-  expense_stop_psf: undefined,
   key_dates: {
     commencement: "2026-01-01",
-    rent_start: "2026-02-01",
     expiration: "2035-12-31",
   },
   operating: {
@@ -339,11 +283,17 @@ const baseScenario = (): AnalysisMeta => ({
     escalation_value: 0.03,
   },
   rent_schedule: [
-    { period_start: "2026-01-01", period_end: "2028-12-31", rent_psf: 48, escalation_percentage: 0.03, free_rent_months: 6, abatement_applies_to: "base_plus_nnn" },
-    { period_start: "2029-01-01", period_end: "2031-12-31", rent_psf: 51, escalation_percentage: 0.03, free_rent_months: 0, abatement_applies_to: "base_only" },
-    { period_start: "2032-01-01", period_end: "2035-12-31", rent_psf: 55, escalation_percentage: 0.03, free_rent_months: 0, abatement_applies_to: "base_only" },
+    { period_start: "2026-01-01", period_end: "2028-12-31", rent_psf: 48, escalation_percentage: 0.03 },
+    { period_start: "2029-01-01", period_end: "2031-12-31", rent_psf: 51, escalation_percentage: 0.03 },
+    { period_start: "2032-01-01", period_end: "2035-12-31", rent_psf: 55, escalation_percentage: 0.03 },
   ],
-  concessions: { ti_allowance_psf: 75, moving_allowance: 250000 },
+  concessions: { 
+    ti_allowance_psf: 75, 
+    moving_allowance: 250000,
+    abatement_type: "at_commencement",
+    abatement_free_rent_months: 6,
+    abatement_applies_to: "base_plus_nnn",
+  },
   parking: { monthly_rate_per_stall: 180, stalls: 40, escalation_method: "fixed", escalation_value: 0.03 },
   options: [
     { type: "Renewal", window_open: "2034-01-01", window_close: "2034-06-30", terms: "+Fair Market with 3% cap" },
@@ -369,10 +319,16 @@ const demoProposals = (): Proposal[] => {
       ...baseScenario(),
       name: "Tenant Counter v1",
       rent_schedule: [
-        { period_start: "2026-01-01", period_end: "2028-12-31", rent_psf: 47, escalation_percentage: 0.03, free_rent_months: 3, abatement_applies_to: "base_only" },
-        { period_start: "2029-01-01", period_end: "2031-12-31", rent_psf: 50, escalation_percentage: 0.03, free_rent_months: 0, abatement_applies_to: "base_only" },
-        { period_start: "2032-01-01", period_end: "2035-12-31", rent_psf: 54, escalation_percentage: 0.03, free_rent_months: 0, abatement_applies_to: "base_only" },
+        { period_start: "2026-01-01", period_end: "2028-12-31", rent_psf: 47, escalation_percentage: 0.03 },
+        { period_start: "2029-01-01", period_end: "2031-12-31", rent_psf: 50, escalation_percentage: 0.03 },
+        { period_start: "2032-01-01", period_end: "2035-12-31", rent_psf: 54, escalation_percentage: 0.03 },
       ],
+      concessions: {
+        ...baseScenario().concessions,
+        abatement_type: "at_commencement",
+        abatement_free_rent_months: 3,
+        abatement_applies_to: "base_only",
+      },
     },
   };
   return [ll, tn];
@@ -393,34 +349,201 @@ function KPI({ label, value, hint }: { label: string; value: string; hint?: stri
   );
 }
 
-const YearTable = React.memo(function YearTable({ lines }: { lines: AnnualLine[] }) {
+const YearTable = React.memo(function YearTable({ lines, rsf, meta }: { lines: AnnualLine[]; rsf: number; meta?: AnalysisMeta }) {
+  // Guard against empty or invalid data
+  if (!lines || lines.length === 0) {
+    return (
+      <div className="overflow-auto border rounded-xl p-4 text-center text-muted-foreground">
+        No cashflow data available
+      </div>
+    );
+  }
+  
+  if (!rsf || rsf <= 0) {
+    return (
+      <div className="overflow-auto border rounded-xl p-4 text-center text-muted-foreground">
+        Invalid RSF value
+      </div>
+    );
+  }
+  
+  // Check if optional columns have any values
+  const hasTIShortfall = lines.some(r => (r.ti_shortfall || 0) !== 0);
+  const hasTransactionCosts = lines.some(r => (r.transaction_costs || 0) !== 0);
+  const hasAmortizedCosts = lines.some(r => (r.amortized_costs || 0) !== 0);
+  
+  // Calculate cumulative cashflow and find break-even year
+  let cumulative = 0;
+  const cumulativeValues: number[] = [];
+  let breakEvenYear: number | null = null;
+  
+  lines.forEach((line) => {
+    cumulative += line.net_cash_flow;
+    cumulativeValues.push(cumulative);
+    if (breakEvenYear === null && cumulative >= 0) {
+      breakEvenYear = line.year;
+    }
+  });
+  
+  // Calculate totals
+  const totals = lines.reduce((acc, r) => ({
+    base_rent: acc.base_rent + r.base_rent,
+    operating: acc.operating + r.operating,
+    parking: acc.parking + (r.parking || 0),
+    abatement_credit: acc.abatement_credit + r.abatement_credit,
+    ti_shortfall: acc.ti_shortfall + (r.ti_shortfall || 0),
+    transaction_costs: acc.transaction_costs + (r.transaction_costs || 0),
+    amortized_costs: acc.amortized_costs + (r.amortized_costs || 0),
+    subtotal: acc.subtotal + r.subtotal,
+    net_cash_flow: acc.net_cash_flow + r.net_cash_flow,
+  }), {
+    base_rent: 0,
+    operating: 0,
+    parking: 0,
+    abatement_credit: 0,
+    ti_shortfall: 0,
+    transaction_costs: 0,
+    amortized_costs: 0,
+    subtotal: 0,
+    net_cash_flow: 0,
+  });
+  
+  const avgBaseRentPSF = (rsf * lines.length) > 0 ? totals.base_rent / (rsf * lines.length) : 0;
+  const avgNetCFPSF = (rsf * lines.length) > 0 ? totals.net_cash_flow / (rsf * lines.length) : 0;
+  
+  // Format PSF helper
+  const fmtPSF = (value: number) => `$${(value || 0).toFixed(2)}/SF`;
+  
+  // Calculate start date for each year
+  const getYearStartDate = (year: number): string | null => {
+    if (!meta?.key_dates?.commencement) return null;
+    const commencement = new Date(meta.key_dates.commencement);
+    if (isNaN(commencement.getTime())) return null;
+    
+    // Find the first year in the cashflow
+    const firstYear = lines.length > 0 ? lines[0].year : year;
+    const yearOffset = year - firstYear;
+    
+    // Calculate start date for this year
+    const startDate = new Date(commencement);
+    startDate.setFullYear(commencement.getFullYear() + yearOffset);
+    
+    // Format as MM/YYYY
+    const month = (startDate.getMonth() + 1).toString().padStart(2, '0');
+    const yearStr = startDate.getFullYear();
+    return `${month}/${yearStr}`;
+  };
+  
   return (
-    <div className="overflow-auto border rounded-xl">
-      <table className="min-w-full text-sm">
+    <div className="overflow-x-auto border rounded-xl" style={{ maxWidth: '100%' }}>
+      <table className="min-w-full text-sm" style={{ minWidth: '800px' }}>
         <thead className="bg-muted/50">
           <tr>
             <th className="text-left p-2">Year</th>
-            <th className="text-right p-2">Base Rent</th>
-            <th className="text-right p-2">Op. Pass-Through</th>
-            <th className="text-right p-2">Parking</th>
-            <th className="text-right p-2">Abatement (credit)</th>
-            <th className="text-right p-2">Subtotal</th>
-            <th className="text-right p-2">Net Cash Flow</th>
+            <th className="text-right p-2" title="Annual base rent">Base Rent</th>
+            <th className="text-right p-2" title="Base rent per square foot per year">Base Rent $/SF</th>
+            <th className="text-right p-2" title="Operating expense pass-throughs">Op. Pass-Through</th>
+            <th className="text-right p-2" title="Annual parking costs">Parking</th>
+            <th className="text-right p-2" title="Free rent abatement credit">Abatement (credit)</th>
+            {hasTIShortfall && (
+              <th className="text-right p-2" title="TI shortfall (tenant pays if actual cost exceeds allowance)">TI Shortfall</th>
+            )}
+            {hasTransactionCosts && (
+              <th className="text-right p-2" title="One-time transaction costs">Trans. Costs</th>
+            )}
+            {hasAmortizedCosts && (
+              <th className="text-right p-2" title="Amortized deal costs (TI, free rent, transaction costs)">Amortized</th>
+            )}
+            <th className="text-right p-2" title="Subtotal before abatement and costs">Subtotal</th>
+            <th className="text-right p-2 font-medium" title="Net cash flow including all adjustments">Net Cash Flow</th>
+            <th className="text-right p-2" title="Net cash flow per square foot per year">Net CF $/SF</th>
+            <th className="text-right p-2 font-medium" title="Cumulative net cash flow from lease start">Cumulative NCF</th>
           </tr>
         </thead>
         <tbody>
-          {lines.map((r) => (
-            <tr key={r.year} className="border-t">
-              <td className="p-2">{r.year}</td>
-              <td className="p-2 text-right">{fmtMoney(r.base_rent)}</td>
-              <td className="p-2 text-right">{fmtMoney(r.operating)}</td>
-              <td className="p-2 text-right">{fmtMoney(r.parking)}</td>
-              <td className="p-2 text-right">{fmtMoney(r.abatement_credit)}</td>
-              <td className="p-2 text-right">{fmtMoney(r.subtotal)}</td>
-              <td className="p-2 text-right font-medium">{fmtMoney(r.net_cash_flow)}</td>
-            </tr>
-          ))}
+          {lines.map((r, idx) => {
+            const isBreakEven = breakEvenYear === r.year;
+            const isPositive = r.net_cash_flow >= 0;
+            const rowClass = isBreakEven 
+              ? "border-t bg-yellow-50 border-yellow-200" 
+              : isPositive 
+                ? "border-t hover:bg-green-50/50" 
+                : "border-t hover:bg-red-50/50";
+            
+            return (
+              <tr key={r.year} className={rowClass}>
+                <td className="p-2 font-medium">
+                  <div className="flex flex-col gap-1">
+                    <div className="flex items-center gap-2">
+                      {(() => {
+                        const yearNum = idx + 1;
+                        const startDate = getYearStartDate(r.year);
+                        return startDate ? `YR ${yearNum} (${startDate})` : `YR ${yearNum}`;
+                      })()}
+                      {isBreakEven && (
+                        <span className="text-xs bg-yellow-200 text-yellow-800 px-1.5 py-0.5 rounded" title="Break-even year">
+                          BE
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-xs text-muted-foreground">{r.year}</div>
+                  </div>
+                </td>
+                <td className="p-2 text-right">{fmtMoney(r.base_rent)}</td>
+                <td className="p-2 text-right text-muted-foreground">{fmtPSF(rsf > 0 ? (r.base_rent / rsf) : 0)}</td>
+                <td className="p-2 text-right">{fmtMoney(r.operating)}</td>
+                <td className="p-2 text-right">{fmtMoney(r.parking)}</td>
+                <td className="p-2 text-right text-green-600">{fmtMoney(r.abatement_credit)}</td>
+                {hasTIShortfall && (
+                  <td className="p-2 text-right text-red-600">
+                    {(r.ti_shortfall || 0) !== 0 ? fmtMoney(r.ti_shortfall) : "-"}
+                  </td>
+                )}
+                {hasTransactionCosts && (
+                  <td className="p-2 text-right text-red-600">
+                    {(r.transaction_costs || 0) !== 0 ? fmtMoney(r.transaction_costs) : "-"}
+                  </td>
+                )}
+                {hasAmortizedCosts && (
+                  <td className="p-2 text-right text-red-600">
+                    {(r.amortized_costs || 0) !== 0 ? fmtMoney(r.amortized_costs) : "-"}
+                  </td>
+                )}
+                <td className="p-2 text-right">{fmtMoney(r.subtotal)}</td>
+                <td className={`p-2 text-right font-medium ${!isPositive ? 'text-red-600' : ''}`}>
+                  {fmtMoney(r.net_cash_flow)}
+                </td>
+                <td className="p-2 text-right text-muted-foreground">{fmtPSF(rsf > 0 ? (r.net_cash_flow / rsf) : 0)}</td>
+                <td className={`p-2 text-right font-medium ${(cumulativeValues[idx] || 0) < 0 ? 'text-red-600' : 'text-green-700'}`}>
+                  {fmtMoney(cumulativeValues[idx] || 0)}
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
+        <tfoot className="bg-muted/70 border-t-2 border-foreground/20">
+          <tr className="font-semibold">
+            <td className="p-2">TOTAL</td>
+            <td className="p-2 text-right">{fmtMoney(totals.base_rent)}</td>
+            <td className="p-2 text-right text-muted-foreground">{fmtPSF(avgBaseRentPSF)}</td>
+            <td className="p-2 text-right">{fmtMoney(totals.operating)}</td>
+            <td className="p-2 text-right">{fmtMoney(totals.parking)}</td>
+            <td className="p-2 text-right text-green-600">{fmtMoney(totals.abatement_credit)}</td>
+            {hasTIShortfall && (
+              <td className="p-2 text-right text-red-600">{fmtMoney(totals.ti_shortfall)}</td>
+            )}
+            {hasTransactionCosts && (
+              <td className="p-2 text-right text-red-600">{fmtMoney(totals.transaction_costs)}</td>
+            )}
+            {hasAmortizedCosts && (
+              <td className="p-2 text-right text-red-600">{fmtMoney(totals.amortized_costs)}</td>
+            )}
+            <td className="p-2 text-right">{fmtMoney(totals.subtotal)}</td>
+            <td className="p-2 text-right">{fmtMoney(totals.net_cash_flow)}</td>
+            <td className="p-2 text-right text-muted-foreground">{fmtPSF(avgNetCFPSF)}</td>
+            <td className="p-2 text-right">{fmtMoney(cumulativeValues[cumulativeValues.length - 1] || 0)}</td>
+          </tr>
+        </tfoot>
       </table>
     </div>
   );
@@ -451,6 +574,7 @@ export default function LeaseAnalyzerApp({
   const [selectedId, setSelectedId] = useState<string | null>(initialAnalysisId);
   const [selectedProposalId, setSelectedProposalId] = useState<string | null>(null);
   const [pendingNewAnalysisId, setPendingNewAnalysisId] = useState<string | null>(null);
+  const processedPendingIdRef = useRef<string | null>(null);
   const [presentationMode, setPresentationMode] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [lastSaved, setLastSaved] = useState<string | null>(null);
@@ -477,14 +601,32 @@ export default function LeaseAnalyzerApp({
 
   // Handle pending new analysis - set selectedId when it appears in the array
   useEffect(() => {
-    if (pendingNewAnalysisId) {
-      const found = analyses.find((a) => a.id === pendingNewAnalysisId);
-      if (found) {
-        console.log('🔧 New analysis found in array, setting as selected:', pendingNewAnalysisId);
-        setSelectedId(pendingNewAnalysisId);
-        setPendingNewAnalysisId(null);
-      } else {
-        console.log('⏳ Waiting for analysis to appear in array:', pendingNewAnalysisId, 'Current analyses:', analyses.map(a => a.id));
+    if (!pendingNewAnalysisId) {
+      // Reset ref when pending is cleared
+      if (processedPendingIdRef.current) {
+        processedPendingIdRef.current = null;
+      }
+      return;
+    }
+    
+    // Skip if we've already processed this ID
+    if (processedPendingIdRef.current === pendingNewAnalysisId) {
+      return;
+    }
+    
+    const found = analyses.find((a) => a.id === pendingNewAnalysisId);
+    if (found) {
+      console.log('🔧 New analysis found in array, setting as selected:', pendingNewAnalysisId);
+      // Mark as processed to prevent re-running
+      processedPendingIdRef.current = pendingNewAnalysisId;
+      // Clear pending first to prevent re-triggering
+      setPendingNewAnalysisId(null);
+      setSelectedId(pendingNewAnalysisId);
+      // Auto-select the base proposal if it exists
+      if (found.proposals && found.proposals.length > 0) {
+        const baseProposal = found.proposals[0];
+        console.log('🔧 Auto-selecting base proposal:', baseProposal.id);
+        setSelectedProposalId(baseProposal.id);
       }
     }
   }, [pendingNewAnalysisId, analyses]);
@@ -504,13 +646,65 @@ export default function LeaseAnalyzerApp({
     }
   }, [selectedId, selectedAnalysis, analyses]);
 
+  // Track previous analyses to prevent unnecessary parent updates
+  const prevAnalysesRef = useRef<AnalysisMeta[]>([]);
+  const isInitialMountRef = useRef(true);
+  const onAnalysesChangedRef = useRef(onAnalysesChanged);
+  
+  // Keep callback ref up to date
   useEffect(() => {
-    onAnalysesChanged?.(analyses);
-  }, [analyses, onAnalysesChanged]);
+    onAnalysesChangedRef.current = onAnalysesChanged;
+  }, [onAnalysesChanged]);
+  
+  // Notify parent of analyses changes - only when content actually changes
+  useEffect(() => {
+    // Skip on initial mount to prevent unnecessary callback
+    if (isInitialMountRef.current) {
+      isInitialMountRef.current = false;
+      prevAnalysesRef.current = analyses;
+      return;
+    }
+    
+    // Compare by serializing key fields to detect actual changes
+    const prevSerialized = JSON.stringify(prevAnalysesRef.current.map(a => ({ id: a.id, name: a.name, status: a.status })));
+    const currentSerialized = JSON.stringify(analyses.map(a => ({ id: a.id, name: a.name, status: a.status })));
+    
+    // Only notify if the content actually changed
+    if (prevSerialized !== currentSerialized) {
+      prevAnalysesRef.current = analyses;
+      onAnalysesChangedRef.current?.(analyses);
+    }
+  }, [analyses]);
 
+  // Track previous deals to prevent unnecessary parent updates
+  const prevDealsRef = useRef<Deal[]>([]);
+  const isInitialDealsMountRef = useRef(true);
+  const onDealsChangedRef = useRef(onDealsChanged);
+  
+  // Keep callback ref up to date
   useEffect(() => {
-    onDealsChanged?.(deals);
-  }, [deals, onDealsChanged]);
+    onDealsChangedRef.current = onDealsChanged;
+  }, [onDealsChanged]);
+  
+  // Notify parent of deals changes - only when content actually changes
+  useEffect(() => {
+    // Skip on initial mount to prevent unnecessary callback
+    if (isInitialDealsMountRef.current) {
+      isInitialDealsMountRef.current = false;
+      prevDealsRef.current = deals;
+      return;
+    }
+    
+    // Compare by serializing key fields to detect actual changes
+    const prevSerialized = JSON.stringify(prevDealsRef.current.map(d => ({ id: d.id, clientName: d.clientName, stage: d.stage })));
+    const currentSerialized = JSON.stringify(deals.map(d => ({ id: d.id, clientName: d.clientName, stage: d.stage })));
+    
+    // Only notify if the content actually changed
+    if (prevSerialized !== currentSerialized) {
+      prevDealsRef.current = deals;
+      onDealsChangedRef.current?.(deals);
+    }
+  }, [deals]);
 
   useEffect(() => {
     if (!supabase || !supabaseUser) {
@@ -518,8 +712,18 @@ export default function LeaseAnalyzerApp({
     }
   }, [deals, supabase, supabaseUser]);
 
-  // Load data from Supabase/local storage on mount
+  // Track if data has been loaded to prevent re-loading
+  const hasLoadedDataRef = useRef(false);
+  
+  // Load data from Supabase/local storage on mount - only run once
   useEffect(() => {
+    // Only load data once
+    if (hasLoadedDataRef.current) {
+      return;
+    }
+    
+    hasLoadedDataRef.current = true;
+    
     const loadData = async () => {
       setIsLoading(true); // Ensure loading starts
       try {
@@ -540,7 +744,6 @@ export default function LeaseAnalyzerApp({
               lease_type: "FS" as LeaseType,
               key_dates: {
                 commencement: today,
-                rent_start: today,
                 expiration: new Date(
                   Date.now() + 365 * 24 * 60 * 60 * 1000 * 5
                 )
@@ -560,8 +763,6 @@ export default function LeaseAnalyzerApp({
                     .split("T")[0],
                   rent_psf: 32.0,
                   escalation_percentage: 0.03,
-                  free_rent_months: 0,
-                  abatement_applies_to: "base_only",
                 },
               ],
               concessions: {
@@ -606,12 +807,25 @@ export default function LeaseAnalyzerApp({
               ),
             ]);
           } catch (error) {
+            // #region agent log
+            const requestId = crypto.randomUUID();
+            fetch('http://127.0.0.1:7242/ingest/cbd4c245-b3ae-4bd5-befa-846cd00012b5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'LeaseAnalyzerApp.tsx:608',message:'LeaseAnalyzerApp loadData catch block entry',data:{requestId,errorType:typeof error,errorMessage:error instanceof Error?error.message:String(error),isNetworkError:error instanceof Error&&(error.message?.toLowerCase().includes('fetch')||error.message?.toLowerCase().includes('network')||error.message?.toLowerCase().includes('timeout')),hasSupabase:!!supabase,hasSupabaseUser:!!supabaseUser},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
+            // #endregion
             // If Supabase fails, fall back to local storage
             console.warn("Supabase data load failed in LeaseAnalyzerApp, using local storage:", error);
+            // #region agent log
+            fetch('http://127.0.0.1:7242/ingest/cbd4c245-b3ae-4bd5-befa-846cd00012b5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'LeaseAnalyzerApp.tsx:611',message:'LeaseAnalyzerApp before loading from local storage',data:{requestId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
+            // #endregion
             const storedAnalyses = storage.load() as AnalysisMeta[];
             const storedDeals = dealStorage.load();
+            // #region agent log
+            fetch('http://127.0.0.1:7242/ingest/cbd4c245-b3ae-4bd5-befa-846cd00012b5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'LeaseAnalyzerApp.tsx:614',message:'LeaseAnalyzerApp after loading from local storage',data:{requestId,storedAnalysesCount:storedAnalyses.length,storedDealsCount:storedDeals.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
+            // #endregion
             remoteAnalyses = storedAnalyses;
             remoteDeals = storedDeals;
+            // #region agent log
+            fetch('http://127.0.0.1:7242/ingest/cbd4c245-b3ae-4bd5-befa-846cd00012b5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'LeaseAnalyzerApp.tsx:617',message:'LeaseAnalyzerApp loadData catch block exit',data:{requestId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
+            // #endregion
           }
 
           if (remoteAnalyses.length > 0) {
@@ -642,7 +856,6 @@ export default function LeaseAnalyzerApp({
               lease_type: "FS" as LeaseType,
               key_dates: {
                 commencement: today,
-                rent_start: today,
                 expiration: new Date(
                   Date.now() + 365 * 24 * 60 * 60 * 1000 * 5
                 )
@@ -662,8 +875,6 @@ export default function LeaseAnalyzerApp({
                     .split("T")[0],
                   rent_psf: 32.0,
                   escalation_percentage: 0.03,
-                  free_rent_months: 0,
-                  abatement_applies_to: "base_only",
                 },
               ],
               concessions: {
@@ -727,16 +938,23 @@ export default function LeaseAnalyzerApp({
               lease_type: "FS" as LeaseType,
               key_dates: {
                 commencement: today,
-                rent_start: today,
                 expiration: new Date(
                   Date.now() + 365 * 24 * 60 * 60 * 1000 * 5
                 )
                   .toISOString()
                   .split("T")[0],
               },
-              operating: {},
+              operating: {
+          escalation_type: "fixed",
+        },
               rent_schedule: [],
-              concessions: {},
+        rent_escalation: {
+          escalation_type: "fixed",
+          fixed_escalation_percentage: 0,
+        },
+              concessions: {
+                abatement_type: "at_commencement",
+              },
               options: [],
               cashflow_settings: {
                 discount_rate: 0.08,
@@ -760,7 +978,7 @@ export default function LeaseAnalyzerApp({
     };
 
     loadData();
-  }, [reportError, supabase, supabaseUser]);
+  }, [supabase, supabaseUser, reportError]);
 
 
   // Auto-save when analyses change (with proper dependency management and reduced frequency)
@@ -824,20 +1042,33 @@ export default function LeaseAnalyzerApp({
       
       const newAnalysis: AnalysisMeta = {
         id,
-        name: `New Analysis ${analyses.length + 1}`,
+        name: "",
         status: "Draft",
-        tenant_name: "Untitled Tenant",
+        tenant_name: "",
         market: "",
         rsf: 0,
-        lease_type: "FS",
+        lease_type: undefined,
+        rep_type: undefined,
         key_dates: {
-          commencement: today,
-          rent_start: today,
-          expiration: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000 * 5).toISOString().split('T')[0], // 5 years from now
+          commencement: "",
+          expiration: "",
         },
-        operating: {},
+        lease_term: {
+          years: 5,
+          months: 0,
+          include_abatement_in_term: false,
+        },
+        operating: {
+          escalation_type: "fixed",
+        },
         rent_schedule: [],
-        concessions: {},
+        rent_escalation: {
+          escalation_type: "fixed",
+          fixed_escalation_percentage: 0,
+        },
+        concessions: {
+          abatement_type: "at_commencement",
+        },
         options: [],
         cashflow_settings: {
           discount_rate: 0.08,
@@ -847,7 +1078,19 @@ export default function LeaseAnalyzerApp({
         proposals: [],
       };
       
-      console.log('🔧 Created new analysis:', newAnalysis);
+      // Auto-create base proposal - default to "Tenant" side
+      const baseProposal: Proposal = {
+        id: nanoid(),
+        side: "Tenant",
+        label: "v1",
+        created_at: new Date().toISOString(),
+        meta: { ...newAnalysis }, // Use the actual analysis data, not demo data
+      };
+      
+      // Add base proposal to the analysis
+      newAnalysis.proposals = [baseProposal];
+      
+      console.log('🔧 Created new analysis with base proposal:', newAnalysis);
       
       // Use pendingNewAnalysisId mechanism to ensure selectedId is set AFTER analyses updates
       // This prevents race conditions where selectedAnalysis might be null
@@ -1063,12 +1306,20 @@ export default function LeaseAnalyzerApp({
       return;
     }
     
+    // Count existing proposals of this side to number the new one
+    const existingProposalsOfSide = (selectedAnalysis.proposals as Proposal[]).filter(p => p.side === side);
+    const versionNumber = existingProposalsOfSide.length + 1;
+    
+    // Create proposal using the actual analysis data, not demo data
     const p: Proposal = {
       id: nanoid(),
       side,
-      label: `${side} v1`,
+      label: `${side} v${versionNumber}`,
       created_at: new Date().toISOString(),
-      meta: baseScenario(),
+      meta: {
+        ...selectedAnalysis, // Use the actual analysis data
+        name: `${selectedAnalysis.name} - ${side} v${versionNumber}`, // Update name to reflect proposal
+      },
     };
     
     console.log('🔧 Creating proposal:', p, 'for analysis:', selectedAnalysis.id);
@@ -1088,7 +1339,7 @@ export default function LeaseAnalyzerApp({
   }
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="h-full bg-background flex flex-col overflow-hidden">
       {/* Duplicate Dialog */}
       {duplicateDialogOpen && duplicateSourceAnalysis && (
         <DuplicateDialog
@@ -1196,47 +1447,6 @@ export default function LeaseAnalyzerApp({
             }}
             onDuplicate={duplicate}
             onDelete={remove}
-            onExport={() => {
-              try {
-                const data = storage.export();
-                const blob = new Blob([data], { type: 'application/json' });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = `lease-analyses-${new Date().toISOString().split('T')[0]}.json`;
-                a.click();
-                URL.revokeObjectURL(url);
-              } catch (error) {
-                reportError(error as Error, 'Export data');
-                alert('Export failed. Please try again.');
-              }
-            }}
-            onImport={(file: File) => {
-              const reader = new FileReader();
-              reader.onload = (e) => {
-                try {
-                  const content = e.target?.result as string;
-                  const result = storage.import(content);
-                  if (result.success) {
-                    const importedAnalyses = storage.load() as AnalysisMeta[];
-                    setAnalyses(importedAnalyses);
-                    if (isSupabaseConfigured && supabase && supabaseUser) {
-                      upsertAnalysesForUser(supabase, supabaseUser.id, importedAnalyses).catch(
-                        (error) => console.error("Failed to sync imported analyses:", error)
-                      );
-                    }
-                    console.log('✅ Imported', result.count, 'analyses');
-                  } else {
-                    console.error('❌ Import failed:', result.error);
-                    alert(`Import failed: ${result.error}`);
-                  }
-                } catch (error) {
-                  reportError(error as Error, 'Import data');
-                  alert('Import failed. Please check the file format.');
-                }
-              };
-              reader.readAsText(file);
-            }}
           />
         </ErrorBoundary>
       ) : !selectedProposal ? (
@@ -1281,6 +1491,7 @@ export default function LeaseAnalyzerApp({
             </div>
           }
         >
+          <div className="h-full flex flex-col overflow-hidden">
           {presentationMode && selectedProposal ? (
             <PresentationMode
               proposal={selectedProposal}
@@ -1300,7 +1511,7 @@ export default function LeaseAnalyzerApp({
                   
                   // Also update the analysis meta if this is the base scenario
                   // This ensures the analysis list reflects changes immediately
-                  if (selectedProposal.side === 'Base') {
+                  if (selectedProposal.label === 'Base') {
                     setAnalyses((prev) =>
                       prev.map((a) => {
                         if (a.id === selectedAnalysis.id) {
@@ -1326,6 +1537,7 @@ export default function LeaseAnalyzerApp({
               allProposals={selectedAnalysis.proposals}
             />
           )}
+          </div>
         </AsyncErrorBoundary>
       )}
     </div>
@@ -1340,8 +1552,6 @@ function HomeList({
   onOpen,
   onDuplicate,
   onDelete,
-  onExport,
-  onImport,
 }: {
   list: {
     id: string;
@@ -1351,6 +1561,7 @@ function HomeList({
     market: string;
     rsf: number;
     lease_type: LeaseType;
+    rep_type?: "Occupier" | "Landlord";
     proposals: Proposal[];
   }[];
   query: string;
@@ -1359,46 +1570,22 @@ function HomeList({
   onOpen: (id: string) => void;
   onDuplicate: (id: string) => void;
   onDelete: (id: string) => void;
-  onExport: () => void;
-  onImport: (file: File) => void;
 }) {
   return (
     <div className="max-w-6xl mx-auto px-4 py-4 sm:py-8">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-6 gap-4">
         <div>
           <h1 className="text-xl sm:text-2xl font-semibold">Lease Analyses</h1>
-          <p className="text-sm text-muted-foreground">Track negotiations and model cash flows for tenant-rep deals.</p>
+          <p className="text-sm text-muted-foreground">Track negotiations and model cash flows for lease transactions.</p>
         </div>
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
-          <div className="flex items-center gap-2">
-            <Button variant="outline" onClick={onExport} title="Export all analyses" className="flex-1 sm:flex-none">
-              <Download className="mr-2 h-4 w-4" />
-              <span className="hidden sm:inline">Export</span>
-            </Button>
-            <label className="flex-1 sm:flex-none">
-              <Button variant="outline" asChild title="Import analyses from JSON file" className="w-full sm:w-auto">
-                <span>
-                  <Upload className="mr-2 h-4 w-4" />
-                  <span className="hidden sm:inline">Import</span>
-                </span>
-              </Button>
-              <input
-                type="file"
-                accept=".json"
-                className="hidden"
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (file) {
-                    onImport(file);
-                    e.target.value = ''; // Reset input
-                  }
-                }}
-              />
-            </label>
-          </div>
-          <Button onClick={onNew} className="rounded-2xl w-full sm:w-auto">
+        <div className="flex items-center gap-2">
+          <Button 
+            onClick={() => onNew()} 
+            className="rounded-2xl flex-1 sm:flex-none"
+            variant="default"
+          >
             <Plus className="mr-2 h-4 w-4" />
-            New analysis
+            New Analysis
           </Button>
         </div>
       </div>
@@ -1422,6 +1609,14 @@ function HomeList({
                     <Badge variant="secondary" className="text-xs w-fit">
                       {a.status}
                     </Badge>
+                    {a.rep_type && (
+                      <Badge 
+                        variant={a.rep_type === "Occupier" ? "default" : "outline"} 
+                        className="text-xs w-fit"
+                      >
+                        {a.rep_type} Rep
+                      </Badge>
+                    )}
                   </div>
                   <div className="text-sm text-muted-foreground">
                     <div className="sm:hidden space-y-1">
@@ -1500,6 +1695,7 @@ function ProposalsBoard({
     market: string;
     rsf: number;
     lease_type: LeaseType;
+    rep_type?: "Occupier" | "Landlord";
     proposals: Proposal[];
   };
   onBack: () => void;
@@ -1546,6 +1742,14 @@ function ProposalsBoard({
             Back
           </Button>
           <h2 className="text-lg sm:text-xl font-semibold truncate">{analysis.name}</h2>
+          {analysis.rep_type && (
+            <Badge 
+              variant={analysis.rep_type === "Occupier" ? "default" : "outline"} 
+              className="text-xs"
+            >
+              {analysis.rep_type} Rep
+            </Badge>
+          )}
         </div>
         <div className="flex items-center gap-2 w-full sm:w-auto">
           <Button variant="outline" onClick={() => onNewProposal("Landlord")} className="rounded-2xl flex-1 sm:flex-none">
@@ -1557,6 +1761,28 @@ function ProposalsBoard({
         </div>
       </div>
 
+      {/* Empty State */}
+      {analysis.proposals.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-12 px-4 text-center">
+          <div className="mb-4">
+            <p className="text-lg font-medium text-muted-foreground mb-2">No proposals yet</p>
+            <p className="text-sm text-muted-foreground">
+              Create your first proposal to start analyzing this lease
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button 
+              variant="outline" 
+              onClick={() => onNewProposal("Tenant")} 
+              className="rounded-2xl"
+            >
+              <Plus className="mr-2 h-4 w-4" />
+              Create First Proposal
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <>
       {/* Columns - Mobile: Stack, Desktop: Grid */}
       <div className="block sm:hidden space-y-4">
         {analysis.proposals.map((p) => {
@@ -1603,7 +1829,9 @@ function ProposalsBoard({
                     ${meta.concessions?.ti_allowance_psf || 0}/SF
                   </Badge>
                   <Badge variant="outline" title="Free Rent" className="text-center">
-                    {meta.rent_schedule?.[0]?.free_rent_months || 0} mo
+                    {meta.concessions?.abatement_type === "at_commencement" 
+                      ? (meta.concessions?.abatement_free_rent_months || 0)
+                      : (meta.concessions?.abatement_periods?.reduce((sum, p) => sum + p.free_rent_months, 0) || 0)} mo
                   </Badge>
                   <Badge variant="outline" title="Moving Allowance" className="text-center">
                     {meta.concessions?.moving_allowance ? 
@@ -1710,7 +1938,9 @@ function ProposalsBoard({
                       <div className="flex justify-between">
                         <span className="text-muted-foreground">Free Rent:</span>
                         <span className="font-medium">
-                          {meta.rent_schedule?.[0]?.free_rent_months || 0} mo
+                          {meta.concessions?.abatement_type === "at_commencement" 
+                            ? (meta.concessions?.abatement_free_rent_months || 0)
+                            : (meta.concessions?.abatement_periods?.reduce((sum, p) => sum + p.free_rent_months, 0) || 0)} mo
                         </span>
                       </div>
                       <div className="flex justify-between">
@@ -1731,6 +1961,8 @@ function ProposalsBoard({
         </div>
         </SortableContext>
       </div>
+        </>
+      )}
     </div>
     </DndContext>
   );
@@ -1767,11 +1999,8 @@ function Workspace({
 }) {
   const meta = proposal.meta;
   const lines = useMemo(() => buildAnnualCashflow(meta), [meta]);
-  const years =
-    new Date(meta.key_dates.expiration).getFullYear() -
-      new Date(meta.key_dates.commencement).getFullYear() +
-    1;
-  const eff = useMemo(() => effectiveRentPSF(lines, meta.rsf, years), [lines, meta, years]);
+  const years = useMemo(() => calculateLeaseTermYears(meta), [meta]);
+  const eff = useMemo(() => effectiveRentPSF(lines, meta.rsf, years), [lines, meta.rsf, years]);
   const pvV = useMemo(() => npv(lines, meta.cashflow_settings.discount_rate), [lines, meta]);
 
   // Export dialog state
@@ -1827,8 +2056,8 @@ function Workspace({
   };
 
   return (
-    <div className="h-full overflow-y-auto">
-      <div className="max-w-7xl mx-auto px-4 py-4 sm:py-6">
+    <div className="h-full flex flex-col overflow-hidden">
+      <div className="max-w-7xl mx-auto px-4 py-4 sm:py-6 w-full flex-shrink-0">
       {/* Export Dialog */}
       <ExportDialog
         isOpen={showExportDialog}
@@ -1839,56 +2068,89 @@ function Workspace({
         proposalName={`${proposal.side} - ${proposal.label || meta.name}`}
       />
 
-      <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 mb-4">
-        <div className="flex items-center gap-2">
-          <Button variant="ghost" onClick={onBackToBoard} className="flex-shrink-0">
-            <ArrowLeft className="mr-2 h-4 w-4" />
-            <span className="hidden sm:inline">Back to Proposals</span>
-            <span className="sm:hidden">Back</span>
-          </Button>
-          <h2 className="text-lg sm:text-xl font-semibold truncate">
-            {proposal.side}
-            {proposal.label ? ` • ${proposal.label}` : ""}
-          </h2>
-        </div>
-        <div className="flex items-center gap-2 w-full sm:w-auto flex-wrap">
-          <DealLinkDropdown
-            currentDealId={currentLinkedDeal?.id}
-            linkedDeal={currentLinkedDeal}
-            availableDeals={deals}
-            onLinkToDeal={onLinkToDeal}
-            onCreateNewDeal={onCreateDealFromAnalysis}
-            onUnlink={onUnlinkFromDeal}
-            onSyncNow={onSyncWithDeal}
-          />
-          {onEnterPresentation && (
-            <Button
-              variant="default"
-              onClick={onEnterPresentation}
-              className="flex-1 sm:flex-none rounded-2xl"
-              title="Enter Presentation Mode (Ctrl+P)"
+      {/* Header */}
+      <div className="mb-6">
+        <div className="flex items-center justify-between gap-4 mb-3">
+          <div className="flex items-center gap-3 flex-1 min-w-0">
+            <Button 
+              variant="ghost" 
+              onClick={onBackToBoard} 
+              size="sm"
+              className="h-8 px-2 -ml-2"
             >
-              <Presentation className="mr-2 h-4 w-4" />
-              <span className="hidden sm:inline">Present</span>
+              <ArrowLeft className="h-4 w-4" />
             </Button>
-          )}
-          <Button 
-            variant="outline" 
-            onClick={() => setShowExportDialog(true)}
-            title="Export to PDF, Excel, or Print" 
-            className="flex-1 sm:flex-none"
-          >
-            <FileDown className="mr-2 h-4 w-4" />
-            <span className="hidden sm:inline">Export</span>
-          </Button>
-          <Button title="Save" className="rounded-2xl flex-1 sm:flex-none">
-            <Save className="mr-2 h-4 w-4" />
-            Save
-          </Button>
+            <div className="flex flex-col min-w-0">
+              <div className="flex items-center gap-2">
+                <h1 className="text-xl font-semibold text-foreground">
+                  {meta.name || "Untitled Analysis"}
+                </h1>
+                {meta.rep_type && (
+                  <Badge variant="outline" className="text-xs">
+                    {meta.rep_type} Rep
+                  </Badge>
+                )}
+              </div>
+              <div className="flex items-center gap-2 mt-0.5">
+                <span className="text-sm text-muted-foreground">
+                  {proposal.side}
+                </span>
+                {proposal.label && (
+                  <>
+                    <span className="text-muted-foreground">•</span>
+                    <span className="text-sm text-muted-foreground">
+                      {proposal.label}
+                    </span>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+          
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <DealLinkDropdown
+              currentDealId={currentLinkedDeal?.id}
+              linkedDeal={currentLinkedDeal}
+              availableDeals={deals}
+              onLinkToDeal={onLinkToDeal}
+              onCreateNewDeal={onCreateDealFromAnalysis}
+              onUnlink={onUnlinkFromDeal}
+              onSyncNow={onSyncWithDeal}
+            />
+            {onEnterPresentation && (
+              <Button
+                variant="default"
+                onClick={onEnterPresentation}
+                size="sm"
+                title="Enter Presentation Mode (Ctrl+P)"
+              >
+                <Presentation className="h-4 w-4 mr-2" />
+                Present
+              </Button>
+            )}
+            <Button 
+              variant="default"
+              onClick={() => setShowExportDialog(true)}
+              size="sm"
+              title="Export to PDF, Excel, or Print"
+            >
+              <FileDown className="h-4 w-4 mr-2" />
+              <span className="hidden sm:inline">Export</span>
+            </Button>
+            <Button 
+              onClick={() => onSave(meta)}
+              size="sm"
+              title="Save changes"
+            >
+              <Save className="h-4 w-4 mr-2" />
+              <span className="hidden sm:inline">Save</span>
+            </Button>
+          </div>
         </div>
+        <div className="h-px bg-border"></div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-6">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-6">
         <KPI
           label="Effective Rate"
           value={fmtRate(eff)}
@@ -1899,14 +2161,21 @@ function Workspace({
           value={fmtMoney(pvV)}
           hint="Discounted net cash flows at selected rate."
         />
+        <KPI
+          label="NPV $/SF/yr"
+          value={years > 0 && meta.rsf > 0 ? fmtRate(pvV / (meta.rsf * years)) : "$0.00/SF/yr"}
+          hint="Net Present Value per square foot per year."
+        />
         <KPI label="RSF" value={meta.rsf.toLocaleString()} hint="Rentable square feet." />
       </div>
+      </div>
 
-      <Tabs defaultValue="proposal" className="w-full">
-        <TabsList className="grid grid-cols-5 w-full">
+      <div className="flex-1 min-h-0 max-w-7xl mx-auto w-full px-4 pb-4 sm:pb-6">
+      <Tabs defaultValue="proposal" className="w-full h-full flex flex-col min-h-0">
+        <TabsList className="grid grid-cols-5 w-full flex-shrink-0">
           <TabsTrigger value="proposal" className="text-xs sm:text-sm">
-            <span className="hidden sm:inline">Proposal</span>
-            <span className="sm:hidden">Prop</span>
+            <span className="hidden sm:inline">Lease Terms</span>
+            <span className="sm:hidden">Terms</span>
           </TabsTrigger>
           <TabsTrigger value="analysis" className="text-xs sm:text-sm">
             <span className="hidden sm:inline">Analysis</span>
@@ -1925,16 +2194,16 @@ function Workspace({
             <span className="sm:hidden">Comm</span>
           </TabsTrigger>
         </TabsList>
-        <TabsContent value="proposal">
+        <TabsContent value="proposal" className="overflow-y-auto flex-1 min-h-0">
           <ProposalTab a={meta} onSave={onSave} />
         </TabsContent>
-        <TabsContent value="analysis">
-          <AnalysisTab lines={lines} />
+        <TabsContent value="analysis" className="overflow-y-auto flex-1 min-h-0">
+          <AnalysisTab lines={lines} meta={meta} />
         </TabsContent>
-        <TabsContent value="cashflow">
+        <TabsContent value="cashflow" className="overflow-y-auto flex-1 min-h-0">
           <CashflowTab lines={lines} meta={meta} proposals={allProposals || [proposal]} />
         </TabsContent>
-        <TabsContent value="ner">
+        <TabsContent value="ner" className="overflow-y-auto flex-1 min-h-0">
           <NERAnalysisView
             analysis={meta}
             onSave={(nerAnalysis) => {
@@ -1943,7 +2212,7 @@ function Workspace({
             }}
           />
         </TabsContent>
-        <TabsContent value="commission">
+        <TabsContent value="commission" className="overflow-y-auto flex-1 min-h-0">
           <CommissionCalculator
             analysis={meta}
             initialStructure={meta.commissionStructure}
@@ -2030,10 +2299,11 @@ function RentScheduleRow({
           />
         </div>
         <CurrencyInput
-          label="Base Rent ($/SF/yr)"
+          label="Base Rent $/SF"
           value={row.rent_psf}
           onChange={(value) => setRentRow(idx, { rent_psf: value || 0 })}
           placeholder="0.00"
+          currency="$/SF"
         />
         <PercentageInput
           label="Annual Escalation"
@@ -2042,25 +2312,351 @@ function RentScheduleRow({
           placeholder="3.0"
         />
       </div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-3 border-t">
+    </div>
+  );
+}
+
+// Abatement Period Row Component
+function AbatementPeriodRow({
+  id,
+  period,
+  idx,
+  setAbatementPeriod,
+  deleteAbatementPeriod,
+}: {
+  id: string;
+  period: AbatementPeriod;
+  idx: number;
+  setAbatementPeriod: (idx: number, patch: Partial<AbatementPeriod>) => void;
+  deleteAbatementPeriod: (idx: number) => void;
+}) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  };
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className="border rounded-lg p-4 space-y-3"
+    >
+      <div className="flex items-center justify-between mb-2">
+        <div
+          {...attributes}
+          {...listeners}
+          className="cursor-grab active:cursor-grabbing flex items-center gap-2 text-xs text-muted-foreground"
+        >
+          <span>::</span>
+          <span>Drag to reorder</span>
+        </div>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="text-destructive"
+          onClick={() => deleteAbatementPeriod(idx)}
+        >
+          <Trash2 className="mr-2 h-4 w-4" />
+          Delete Period
+        </Button>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+        <div>
+          <Label>Period Start</Label>
+          <Input
+            type="date"
+            value={period.period_start}
+            onChange={(e) => setAbatementPeriod(idx, { period_start: e.currentTarget.value })}
+          />
+        </div>
+        <div>
+          <Label>Period End</Label>
+          <Input
+            type="date"
+            value={period.period_end}
+            onChange={(e) => setAbatementPeriod(idx, { period_end: e.currentTarget.value })}
+          />
+        </div>
         <ValidatedInput
-          label="Free Rent (Months)"
+          label="Free Rent Months"
           type="number"
-          value={row.free_rent_months ?? 0}
-          onChange={(e) => setRentRow(idx, { free_rent_months: Number(e.currentTarget.value) })}
+          value={period.free_rent_months ?? 0}
+          onChange={(e) => setAbatementPeriod(idx, { free_rent_months: Number(e.currentTarget.value) || 0 })}
           placeholder="0"
           min="0"
-          hint="Applied at the beginning of the period"
+          hint="Number of free rent months in this period"
         />
         <Select
-          label="Apply Abatement To"
-          value={row.abatement_applies_to || "base_only"}
-          onChange={(e) => setRentRow(idx, { abatement_applies_to: e.currentTarget.value as "base_only" | "base_plus_nnn" })}
+          label="Abatement Applies To"
+          value={period.abatement_applies_to || "base_only"}
+          onChange={(e) => setAbatementPeriod(idx, { abatement_applies_to: e.currentTarget.value as "base_only" | "base_plus_nnn" })}
           placeholder="Select abatement type"
           options={[
             { value: 'base_only', label: 'Base Rent Only' },
             { value: 'base_plus_nnn', label: 'Base Rent + NNN' },
           ]}
+        />
+      </div>
+    </div>
+  );
+}
+
+// Helper to get total abatement months
+function getAbatementMonths(concessions: AnalysisMeta["concessions"]): number {
+  if (!concessions) return 0;
+  
+  if (concessions.abatement_type === "at_commencement") {
+    return concessions.abatement_free_rent_months || 0;
+  } else if (concessions.abatement_type === "custom" && concessions.abatement_periods) {
+    return concessions.abatement_periods.reduce((sum, p) => sum + p.free_rent_months, 0);
+  }
+  return 0;
+}
+
+// Helper to calculate expiration date
+function calculateExpiration(
+  commencement: string,
+  years: number,
+  months: number,
+  includeAbatement: boolean,
+  abatementMonths: number
+): string {
+  if (!commencement) return "";
+  
+  const start = new Date(commencement);
+  start.setFullYear(start.getFullYear() + years);
+  start.setMonth(start.getMonth() + months);
+  
+  if (includeAbatement && abatementMonths > 0) {
+    start.setMonth(start.getMonth() + abatementMonths);
+  }
+  
+  // Set to last day of the final month
+  start.setMonth(start.getMonth() + 1);
+  start.setDate(0); // Last day of previous month
+  
+  return start.toISOString().split('T')[0];
+}
+
+// Helper to calculate lease term from existing dates (for backward compatibility)
+function calculateLeaseTermFromDates(
+  commencement: string,
+  expiration: string
+): { years: number; months: number } | null {
+  if (!commencement || !expiration) return null;
+  
+  const start = new Date(commencement);
+  const end = new Date(expiration);
+  
+  let years = end.getFullYear() - start.getFullYear();
+  let months = end.getMonth() - start.getMonth();
+  
+  if (months < 0) {
+    years--;
+    months += 12;
+  }
+  
+  // Adjust for day of month - if expiration is last day of month, include that month
+  if (end.getDate() === new Date(end.getFullYear(), end.getMonth() + 1, 0).getDate()) {
+    months++;
+    if (months >= 12) {
+      years++;
+      months -= 12;
+    }
+  }
+  
+  return { years, months };
+}
+
+// Helper to sync rent schedule period end dates with expiration
+function syncRentScheduleToExpiration(
+  rentSchedule: RentRow[],
+  expiration: string
+): RentRow[] {
+  if (!rentSchedule || rentSchedule.length === 0) return rentSchedule;
+  
+  // Update the last period's end date to match expiration
+  const updated = [...rentSchedule];
+  if (updated.length > 0) {
+    updated[updated.length - 1] = {
+      ...updated[updated.length - 1],
+      period_end: expiration,
+    };
+  }
+  
+  return updated;
+}
+
+// Escalation Period Row Component
+function EscalationPeriodRow({
+  id,
+  period,
+  idx,
+  setEscalationPeriod,
+  deleteEscalationPeriod,
+}: {
+  id: string;
+  period: EscalationPeriod;
+  idx: number;
+  setEscalationPeriod: (idx: number, patch: Partial<EscalationPeriod>) => void;
+  deleteEscalationPeriod: (idx: number) => void;
+}) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  };
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className="border rounded-lg p-4 space-y-3"
+    >
+      <div className="flex items-center justify-between mb-2">
+        <div
+          {...attributes}
+          {...listeners}
+          className="cursor-grab active:cursor-grabbing flex items-center gap-2 text-xs text-muted-foreground"
+        >
+          <span>::</span>
+          <span>Drag to reorder</span>
+        </div>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="text-destructive"
+          onClick={() => deleteEscalationPeriod(idx)}
+        >
+          <Trash2 className="mr-2 h-4 w-4" />
+          Delete Period
+        </Button>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        <div>
+          <Label>Period Start</Label>
+          <Input
+            type="date"
+            value={period.period_start}
+            onChange={(e) => setEscalationPeriod(idx, { period_start: e.currentTarget.value })}
+          />
+        </div>
+        <div>
+          <Label>Period End</Label>
+          <Input
+            type="date"
+            value={period.period_end}
+            onChange={(e) => setEscalationPeriod(idx, { period_end: e.currentTarget.value })}
+          />
+        </div>
+        <PercentageInput
+          label="Escalation %"
+          value={(period.escalation_percentage ?? 0) * 100}
+          onChange={(value) => setEscalationPeriod(idx, { escalation_percentage: (value || 0) / 100 })}
+          placeholder="3.0"
+          hint="Annual escalation rate for this period"
+        />
+      </div>
+    </div>
+  );
+}
+
+// OpEx Escalation Period Row Component
+function OpExEscalationPeriodRow({
+  id,
+  period,
+  idx,
+  setOpExEscalationPeriod,
+  deleteOpExEscalationPeriod,
+}: {
+  id: string;
+  period: OpExEscalationPeriod;
+  idx: number;
+  setOpExEscalationPeriod: (idx: number, patch: Partial<OpExEscalationPeriod>) => void;
+  deleteOpExEscalationPeriod: (idx: number) => void;
+}) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  };
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className="border rounded-lg p-4 space-y-3"
+    >
+      <div className="flex items-center justify-between mb-2">
+        <div
+          {...attributes}
+          {...listeners}
+          className="cursor-grab active:cursor-grabbing flex items-center gap-2 text-xs text-muted-foreground"
+        >
+          <span>::</span>
+          <span>Drag to reorder</span>
+        </div>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="text-destructive"
+          onClick={() => deleteOpExEscalationPeriod(idx)}
+        >
+          <Trash2 className="mr-2 h-4 w-4" />
+          Delete Period
+        </Button>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        <div>
+          <Label>Period Start</Label>
+          <Input
+            type="date"
+            value={period.period_start}
+            onChange={(e) => setOpExEscalationPeriod(idx, { period_start: e.currentTarget.value })}
+          />
+        </div>
+        <div>
+          <Label>Period End</Label>
+          <Input
+            type="date"
+            value={period.period_end}
+            onChange={(e) => setOpExEscalationPeriod(idx, { period_end: e.currentTarget.value })}
+          />
+        </div>
+        <PercentageInput
+          label="Escalation %"
+          value={(period.escalation_percentage ?? 0) * 100}
+          onChange={(value) => setOpExEscalationPeriod(idx, { escalation_percentage: (value || 0) / 100 })}
+          placeholder="3.0"
+          hint="Annual escalation rate for this period"
         />
       </div>
     </div>
@@ -2118,8 +2714,8 @@ function ProposalTab({ a, onSave }: { a: AnalysisMeta; onSave: (patch: AnalysisM
       onSubmit: (data) => {
         // Validate before saving
         const validation = validateAnalysisMeta(data);
-        if (!validation.valid) {
-          console.warn('Validation errors:', validation.errors);
+        if (validation.length > 0) {
+          console.warn('Validation errors:', validation);
           // Still allow save but log warnings
         }
         
@@ -2200,12 +2796,263 @@ function ProposalTab({ a, onSave }: { a: AnalysisMeta; onSave: (patch: AnalysisM
     updateField('concessions', { ...local.concessions, ...patch });
   };
 
+  // Abatement period management
+  const setAbatementPeriod = (idx: number, patch: Partial<AbatementPeriod>) => {
+    const periods = local.concessions.abatement_periods || [];
+    const updated = periods.map((p, i) => i === idx ? { ...p, ...patch } : p);
+    setConcessions({ abatement_periods: updated });
+    
+    // Recalculate expiration if lease term exists
+    if (local.lease_term && local.key_dates.commencement) {
+      const abatementMonths = getAbatementMonths({ ...local.concessions, abatement_periods: updated });
+      const expiration = calculateExpiration(
+        local.key_dates.commencement,
+        local.lease_term.years,
+        local.lease_term.months,
+        local.lease_term.include_abatement_in_term ?? false,
+        abatementMonths
+      );
+      setKeyDates({ expiration });
+    }
+  };
+
+  const addAbatementPeriod = () => {
+    const periods = local.concessions.abatement_periods || [];
+    const newPeriod: AbatementPeriod = {
+      period_start: local.key_dates.commencement || "",
+      period_end: local.key_dates.expiration || "",
+      free_rent_months: 0,
+      abatement_applies_to: "base_only",
+    };
+    const updated = [...periods, newPeriod];
+    setConcessions({ abatement_periods: updated });
+    
+    // Recalculate expiration if lease term exists
+    if (local.lease_term && local.key_dates.commencement) {
+      const abatementMonths = getAbatementMonths({ ...local.concessions, abatement_periods: updated });
+      const expiration = calculateExpiration(
+        local.key_dates.commencement,
+        local.lease_term.years,
+        local.lease_term.months,
+        local.lease_term.include_abatement_in_term ?? false,
+        abatementMonths
+      );
+      setKeyDates({ expiration });
+    }
+  };
+
+  const deleteAbatementPeriod = (idx: number) => {
+    const periods = local.concessions.abatement_periods || [];
+    const updated = periods.filter((_, i) => i !== idx);
+    setConcessions({ abatement_periods: updated });
+    
+    // Recalculate expiration if lease term exists
+    if (local.lease_term && local.key_dates.commencement) {
+      const abatementMonths = getAbatementMonths({ ...local.concessions, abatement_periods: updated });
+      const expiration = calculateExpiration(
+        local.key_dates.commencement,
+        local.lease_term.years,
+        local.lease_term.months,
+        local.lease_term.include_abatement_in_term ?? false,
+        abatementMonths
+      );
+      setKeyDates({ expiration });
+    }
+  };
+
+  // Escalation period management
+  const setEscalationPeriod = (idx: number, patch: Partial<EscalationPeriod>) => {
+    const periods = local.rent_escalation?.escalation_periods || [];
+    const updated = periods.map((p, i) => i === idx ? { ...p, ...patch } : p);
+    updateField('rent_escalation', { 
+      ...local.rent_escalation, 
+      escalation_periods: updated 
+    });
+  };
+
+  const addEscalationPeriod = () => {
+    const periods = local.rent_escalation?.escalation_periods || [];
+    const newPeriod: EscalationPeriod = {
+      period_start: local.key_dates.commencement || "",
+      period_end: local.key_dates.expiration || "",
+      escalation_percentage: 0,
+    };
+    const updated = [...periods, newPeriod];
+    updateField('rent_escalation', { 
+      ...local.rent_escalation, 
+      escalation_periods: updated 
+    });
+  };
+
+  const deleteEscalationPeriod = (idx: number) => {
+    const periods = local.rent_escalation?.escalation_periods || [];
+    const updated = periods.filter((_, i) => i !== idx);
+    updateField('rent_escalation', { 
+      ...local.rent_escalation, 
+      escalation_periods: updated 
+    });
+  };
+
+  // OpEx Escalation period management
+  const setOpExEscalationPeriod = (idx: number, patch: Partial<OpExEscalationPeriod>) => {
+    const periods = local.operating.escalation_periods || [];
+    const updated = periods.map((p, i) => i === idx ? { ...p, ...patch } : p);
+    setOperating({ escalation_periods: updated });
+  };
+
+  const addOpExEscalationPeriod = () => {
+    const periods = local.operating.escalation_periods || [];
+    const newPeriod: OpExEscalationPeriod = {
+      period_start: local.key_dates.commencement || "",
+      period_end: local.key_dates.expiration || "",
+      escalation_percentage: 0,
+    };
+    const updated = [...periods, newPeriod];
+    setOperating({ escalation_periods: updated });
+  };
+
+  const deleteOpExEscalationPeriod = (idx: number) => {
+    const periods = local.operating.escalation_periods || [];
+    const updated = periods.filter((_, i) => i !== idx);
+    setOperating({ escalation_periods: updated });
+  };
+
+  // Handle OpEx escalation period reordering
+  const handleOpExEscalationPeriodDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (over && active.id !== over.id) {
+      const periods = local.operating.escalation_periods || [];
+      const activeIndex = parseInt(active.id.toString().replace("opex-escalation-period-", ""));
+      const overIndex = parseInt(over.id.toString().replace("opex-escalation-period-", ""));
+      
+      if (!isNaN(activeIndex) && !isNaN(overIndex)) {
+        const reordered = arrayMove(periods, activeIndex, overIndex);
+        setOperating({ escalation_periods: reordered });
+      }
+    }
+  };
+
+  // Handle escalation period reordering
+  const handleEscalationPeriodDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (over && active.id !== over.id) {
+      const periods = local.rent_escalation?.escalation_periods || [];
+      const activeIndex = parseInt(active.id.toString().replace("escalation-period-", ""));
+      const overIndex = parseInt(over.id.toString().replace("escalation-period-", ""));
+      
+      if (!isNaN(activeIndex) && !isNaN(overIndex)) {
+        const reordered = arrayMove(periods, activeIndex, overIndex);
+        updateField('rent_escalation', { 
+          ...local.rent_escalation, 
+          escalation_periods: reordered 
+        });
+      }
+    }
+  };
+
+  // Handle abatement period reordering
+  const handleAbatementPeriodDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (over && active.id !== over.id) {
+      const periods = local.concessions.abatement_periods || [];
+      const activeIndex = parseInt(active.id.toString().replace("abatement-period-", ""));
+      const overIndex = parseInt(over.id.toString().replace("abatement-period-", ""));
+      
+      if (!isNaN(activeIndex) && !isNaN(overIndex)) {
+        const reordered = arrayMove(periods, activeIndex, overIndex);
+        setConcessions({ abatement_periods: reordered });
+      }
+    }
+  };
+
   const setRentRow = (idx: number, patch: Partial<RentRow>) => {
     const rs: RentRow[] = local.rent_schedule.map((row, i) =>
       i === idx ? { ...row, ...patch } : row
     );
     updateField('rent_schedule', rs);
   };
+
+  // Backward compatibility: Initialize rent_escalation from existing rent_schedule if not set
+  useEffect(() => {
+    if (!local.rent_escalation && local.rent_schedule.length > 0) {
+      const firstPeriod = local.rent_schedule[0];
+      if (firstPeriod.escalation_percentage !== undefined) {
+        updateField('rent_escalation', {
+          escalation_type: "fixed",
+          fixed_escalation_percentage: firstPeriod.escalation_percentage,
+        });
+      }
+    }
+  }, []); // Only run once on mount
+
+  // Backward compatibility: Initialize operating escalation_type from existing data
+  useEffect(() => {
+    if (!local.operating.escalation_type && local.operating.escalation_value !== undefined) {
+      setOperating({ escalation_type: "fixed" });
+    }
+  }, []); // Only run once on mount
+
+  // Get or create default rent schedule period
+  const defaultRentPeriod = local.rent_schedule.length > 0 
+    ? local.rent_schedule[0] 
+    : {
+        period_start: local.key_dates.commencement || "",
+        period_end: local.key_dates.expiration || "",
+        rent_psf: 0,
+        escalation_percentage: 0,
+      };
+
+  // Update default rent period when simple form fields change
+  const updateDefaultRentPeriod = (updates: Partial<RentRow>) => {
+    const updatedPeriod: RentRow = {
+      period_start: local.key_dates.commencement || "",
+      period_end: local.key_dates.expiration || "",
+      rent_psf: defaultRentPeriod.rent_psf,
+      escalation_percentage: defaultRentPeriod.escalation_percentage || 0,
+      ...updates,
+    };
+
+    // Update or create first period
+    const newSchedule = local.rent_schedule.length > 0
+      ? [updatedPeriod, ...local.rent_schedule.slice(1)]
+      : [updatedPeriod];
+    
+    updateField('rent_schedule', newSchedule);
+  };
+
+  // Backward compatibility: Calculate lease_term from existing dates if not set
+  useEffect(() => {
+    if (!local.lease_term && local.key_dates.commencement && local.key_dates.expiration) {
+      const calculated = calculateLeaseTermFromDates(
+        local.key_dates.commencement,
+        local.key_dates.expiration
+      );
+      if (calculated) {
+        updateField('lease_term', {
+          ...calculated,
+          include_abatement_in_term: false, // Default to false for backward compatibility
+        });
+      }
+    }
+  }, []); // Only run once on mount
+
+  // Sync default period dates when key dates change
+  useEffect(() => {
+    if (local.rent_schedule.length > 0 && local.key_dates.commencement && local.key_dates.expiration) {
+      const firstPeriod = local.rent_schedule[0];
+      if (firstPeriod.period_start !== local.key_dates.commencement || 
+          firstPeriod.period_end !== local.key_dates.expiration) {
+        // Update only the dates, preserve other fields
+        const updatedPeriod: RentRow = {
+          ...firstPeriod,
+          period_start: local.key_dates.commencement,
+          period_end: local.key_dates.expiration,
+        };
+        const newSchedule = [updatedPeriod, ...local.rent_schedule.slice(1)];
+        updateField('rent_schedule', newSchedule);
+      }
+    }
+  }, [local.key_dates.commencement, local.key_dates.expiration, local.rent_schedule.length]);
 
   const addRentRow = () => {
     const newSchedule = [
@@ -2301,22 +3148,13 @@ function ProposalTab({ a, onSave }: { a: AnalysisMeta; onSave: (patch: AnalysisM
         <CardContent className="grid gap-3">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             <ValidatedInput
-              label="Proposal Name"
+              label="Client"
               value={local.name}
               onChange={(e) => updateField('name', e.currentTarget.value)}
               onBlur={() => handleBlur('name')}
               error={getFieldError('name')}
               showError={shouldShowFieldError('name')}
-              placeholder="Enter proposal name"
-            />
-            <ValidatedInput
-              label="Tenant"
-              value={local.tenant_name}
-              onChange={(e) => updateField('tenant_name', e.currentTarget.value)}
-              onBlur={() => handleBlur('tenant_name')}
-              error={getFieldError('tenant_name')}
-              showError={shouldShowFieldError('tenant_name')}
-              placeholder="Enter tenant name"
+              placeholder="Enter client name"
             />
             <ValidatedInput
               label="Market"
@@ -2330,8 +3168,11 @@ function ProposalTab({ a, onSave }: { a: AnalysisMeta; onSave: (patch: AnalysisM
             <ValidatedInput
               label="RSF"
               type="number"
-              value={Number.isFinite(local.rsf) ? local.rsf : 0}
-              onChange={(e) => updateField('rsf', Number(e.currentTarget.value) || 0)}
+              value={local.rsf && local.rsf > 0 ? local.rsf : ""}
+              onChange={(e) => {
+                const newRSF = e.currentTarget.value ? Number(e.currentTarget.value) || 0 : 0;
+                updateField('rsf', newRSF);
+              }}
               onBlur={() => handleBlur('rsf')}
               error={getFieldError('rsf')}
               warning={getFieldWarning('rsf')}
@@ -2342,40 +3183,137 @@ function ProposalTab({ a, onSave }: { a: AnalysisMeta; onSave: (patch: AnalysisM
               step="1"
             />
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             <ValidatedInput
               label="Commencement"
               type="date"
-              value={local.key_dates.commencement}
-              onChange={(e) => setKeyDates({ commencement: e.currentTarget.value })}
+              value={local.key_dates.commencement || ""}
+              onChange={(e) => {
+                const newCommencement = e.currentTarget.value;
+                setKeyDates({ commencement: newCommencement });
+                
+                // Recalculate expiration if lease term exists
+                if (local.lease_term) {
+                  const abatementMonths = getAbatementMonths(local.concessions);
+                  const expiration = calculateExpiration(
+                    newCommencement,
+                    local.lease_term.years,
+                    local.lease_term.months,
+                    local.lease_term.include_abatement_in_term ?? false,
+                    abatementMonths
+                  );
+                  setKeyDates({ expiration });
+                }
+              }}
               onBlur={() => handleBlur('key_dates')}
               error={getFieldError('key_dates')}
               showError={shouldShowFieldError('key_dates')}
+              placeholder="Select lease commencement"
             />
-            <ValidatedInput
-              label="Rent Start"
+            
+            <div className="space-y-1">
+              <Label className="text-sm font-medium leading-none">Lease Term</Label>
+              <div className="grid grid-cols-2 gap-2 pt-1">
+                <ValidatedInput
+                  label="Years"
+                  type="number"
+                  value={local.lease_term?.years || 0}
+                  onChange={(e) => {
+                    const years = Number(e.currentTarget.value) || 0;
+                    const months = local.lease_term?.months || 0;
+                    const includeAbatement = local.lease_term?.include_abatement_in_term ?? false;
+                    
+                    updateField('lease_term', { years, months, include_abatement_in_term: includeAbatement });
+                    
+                    // Recalculate expiration
+                    if (local.key_dates.commencement) {
+                      const abatementMonths = getAbatementMonths(local.concessions);
+                      const expiration = calculateExpiration(
+                        local.key_dates.commencement,
+                        years,
+                        months,
+                        includeAbatement,
+                        abatementMonths
+                      );
+                      setKeyDates({ expiration });
+                      
+                      // Sync rent schedule period end dates
+                      if (local.rent_schedule.length > 0) {
+                        const syncedSchedule = syncRentScheduleToExpiration(local.rent_schedule, expiration);
+                        updateField('rent_schedule', syncedSchedule);
+                      }
+                    }
+                  }}
+                  min="0"
+                  placeholder="0"
+                />
+                <ValidatedInput
+                  label="Months"
+                  type="number"
+                  value={local.lease_term?.months || 0}
+                  onChange={(e) => {
+                    const months = Number(e.currentTarget.value) || 0;
+                    const years = local.lease_term?.years || 0;
+                    const includeAbatement = local.lease_term?.include_abatement_in_term ?? false;
+                    
+                    updateField('lease_term', { years, months, include_abatement_in_term: includeAbatement });
+                    
+                    // Recalculate expiration
+                    if (local.key_dates.commencement) {
+                      const abatementMonths = getAbatementMonths(local.concessions);
+                      const expiration = calculateExpiration(
+                        local.key_dates.commencement,
+                        years,
+                        months,
+                        includeAbatement,
+                        abatementMonths
+                      );
+                      setKeyDates({ expiration });
+                      
+                      // Sync rent schedule period end dates
+                      if (local.rent_schedule.length > 0) {
+                        const syncedSchedule = syncRentScheduleToExpiration(local.rent_schedule, expiration);
+                        updateField('rent_schedule', syncedSchedule);
+                      }
+                    }
+                  }}
+                  min="0"
+                  max="11"
+                  placeholder="0"
+                />
+              </div>
+            </div>
+          </div>
+          
+          <div>
+            <Label>Expiration (Calculated)</Label>
+            <Input
               type="date"
-              value={local.key_dates.rent_start}
-              onChange={(e) => setKeyDates({ rent_start: e.currentTarget.value })}
-              onBlur={() => handleBlur('key_dates')}
-              error={getFieldError('key_dates')}
-              showError={shouldShowFieldError('key_dates')}
+              value={local.key_dates.expiration || ""}
+              readOnly
+              className="bg-muted cursor-not-allowed"
             />
-            <ValidatedInput
-              label="Expiration"
-              type="date"
-              value={local.key_dates.expiration}
-              onChange={(e) => setKeyDates({ expiration: e.currentTarget.value })}
-              onBlur={() => handleBlur('key_dates')}
-              error={getFieldError('key_dates')}
-              showError={shouldShowFieldError('key_dates')}
-            />
+            {(() => {
+              const abatementMonths = getAbatementMonths(local.concessions);
+              const includeAbatement = local.lease_term?.include_abatement_in_term ?? false;
+              if (abatementMonths > 0) {
+                return (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {includeAbatement 
+                      ? `Includes ${abatementMonths} month${abatementMonths !== 1 ? 's' : ''} of abatement`
+                      : `Base term only (${abatementMonths} month${abatementMonths !== 1 ? 's' : ''} abatement not included)`
+                    }
+                  </p>
+                );
+              }
+              return null;
+            })()}
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
             <Select
               label="Lease Type"
-              value={local.lease_type}
-              onChange={(e) => updateField('lease_type', e.currentTarget.value as LeaseType)}
+              value={local.lease_type || ""}
+              onChange={(e) => updateField('lease_type', e.currentTarget.value ? (e.currentTarget.value as LeaseType) : undefined)}
               onBlur={() => handleBlur('lease_type')}
               error={getFieldError('lease_type')}
               showError={shouldShowFieldError('lease_type')}
@@ -2385,29 +3323,21 @@ function ProposalTab({ a, onSave }: { a: AnalysisMeta; onSave: (patch: AnalysisM
                 { value: 'NNN', label: 'Triple Net (NNN)' },
               ]}
             />
-            <Select
-              label="Base Year (FS)"
-              value={local.base_year?.toString() ?? ""}
-              onChange={(e) => updateField('base_year', e.currentTarget.value ? Number(e.currentTarget.value) : undefined)}
-              onBlur={() => handleBlur('base_year')}
-              error={getFieldError('base_year')}
-              showError={shouldShowFieldError('base_year')}
-              placeholder="Select base year"
-              options={Array.from({ length: 10 }, (_, i) => {
-                const year = new Date().getFullYear() + i;
-                return { value: year.toString(), label: year.toString() };
-              })}
-            />
-            <CurrencyInput
-              label="Expense Stop $/SF (NNN)"
-              value={local.expense_stop_psf}
-              onChange={(value) => updateField('expense_stop_psf', value)}
-              onBlur={() => handleBlur('expense_stop_psf')}
-              error={getFieldError('expense_stop_psf')}
-              showError={shouldShowFieldError('expense_stop_psf')}
-              placeholder="0.00"
-              hint="Annual expense stop per square foot"
-            />
+            {local.lease_type === "FS" && (
+              <Select
+                label="Base Year (FS)"
+                value={local.base_year?.toString() ?? ""}
+                onChange={(e) => updateField('base_year', e.currentTarget.value ? Number(e.currentTarget.value) : undefined)}
+                onBlur={() => handleBlur('base_year')}
+                error={getFieldError('base_year')}
+                showError={shouldShowFieldError('base_year')}
+                placeholder="Select base year"
+                options={Array.from({ length: 10 }, (_, i) => {
+                  const year = new Date().getFullYear() + i;
+                  return { value: year.toString(), label: year.toString() };
+                })}
+              />
+            )}
           </div>
           {/* Validation Summary */}
           {errors.length > 0 && (
@@ -2473,50 +3403,26 @@ function ProposalTab({ a, onSave }: { a: AnalysisMeta; onSave: (patch: AnalysisM
 
       <Card className="rounded-2xl">
         <CardHeader>
-          <CardTitle>Operating, Concessions & Settings</CardTitle>
+          <CardTitle>Tenant Improvements, Rent Abatement, and Other Concessions</CardTitle>
         </CardHeader>
-        <CardContent className="grid gap-3">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
+        <CardContent className="grid gap-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             <CurrencyInput
-              label="Est. OpEx $/SF"
-              value={local.operating.est_op_ex_psf}
-              onChange={(value) => setOperating({ est_op_ex_psf: value })}
-              placeholder="0.00"
-              hint="Estimated operating expenses per square foot"
-            />
-            <Select
-              label="Escalation Method"
-              value={local.operating.escalation_method ?? "fixed"}
-              onChange={(e) => setOperating({ escalation_method: e.currentTarget.value as "fixed" | "cpi" })}
-              placeholder="Select escalation method"
-              options={[
-                { value: 'fixed', label: 'Fixed %' },
-                { value: 'cpi', label: 'CPI' },
-              ]}
-            />
-            <PercentageInput
-              label="Escalation Value"
-              value={local.operating.escalation_value}
-              onChange={(value) => setOperating({ escalation_value: value })}
-              placeholder="0.00"
-              hint="Annual escalation rate"
-            />
-            <PercentageInput
-              label="Cap (optional)"
-              value={local.operating.escalation_cap}
-              onChange={(value) => setOperating({ escalation_cap: value })}
-              placeholder="0.00"
-              hint="Maximum escalation rate"
-            />
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-            <CurrencyInput
-              label="TI $/SF"
+              label="TI Allowance $/SF"
               value={local.concessions.ti_allowance_psf}
               onChange={(value) => setConcessions({ ti_allowance_psf: value })}
               placeholder="0.00"
               hint="Tenant improvement allowance per square foot"
             />
+            <CurrencyInput
+              label="TI Actual Cost $/SF"
+              value={local.concessions.ti_actual_build_cost_psf}
+              onChange={(value) => setConcessions({ ti_actual_build_cost_psf: value })}
+              placeholder="0.00"
+              hint="Actual cost to build per square foot"
+            />
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             <CurrencyInput
               label="Moving Allowance"
               value={local.concessions.moving_allowance}
@@ -2525,82 +3431,713 @@ function ProposalTab({ a, onSave }: { a: AnalysisMeta; onSave: (patch: AnalysisM
               hint="Total moving allowance"
             />
             <CurrencyInput
-              label="Other Credits"
+              label="Other Concessions"
               value={local.concessions.other_credits}
               onChange={(value) => setConcessions({ other_credits: value })}
               placeholder="0.00"
               hint="Other tenant credits"
             />
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
+          
+          {/* Rent Abatement Section */}
+          <div className="pt-2 border-t">
+            <h3 className="text-sm font-medium mb-2">Rent Abatement</h3>
+            <div className="space-y-3">
+              <Select
+                label="Abatement Type"
+                value={local.concessions.abatement_type || "at_commencement"}
+                onChange={(e) => {
+                  const abatementType = e.currentTarget.value as "at_commencement" | "custom";
+                  if (abatementType === "at_commencement") {
+                    // Clear custom periods when switching to at_commencement
+                    setConcessions({ 
+                      abatement_type: abatementType,
+                      abatement_periods: undefined 
+                    });
+                  } else {
+                    // Initialize with empty periods array when switching to custom
+                    setConcessions({ 
+                      abatement_type: abatementType,
+                      abatement_periods: local.concessions.abatement_periods || []
+                    });
+                  }
+                }}
+                placeholder="Select abatement type"
+                options={[
+                  { value: 'at_commencement', label: 'Apply at Commencement' },
+                  { value: 'custom', label: 'Custom Abatement' },
+                ]}
+              />
+
+              {(local.concessions.abatement_type === "at_commencement" || !local.concessions.abatement_type) ? (
+                <div className="space-y-2">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <ValidatedInput
+                      label="Free Rent Months"
+                      type="number"
+                      value={local.concessions.abatement_free_rent_months ?? 0}
+                      onChange={(e) => {
+                        const newMonths = Number(e.currentTarget.value) || 0;
+                        setConcessions({ abatement_free_rent_months: newMonths });
+                        
+                        // Recalculate expiration if lease term exists
+                        if (local.lease_term && local.key_dates.commencement) {
+                          const expiration = calculateExpiration(
+                            local.key_dates.commencement,
+                            local.lease_term.years,
+                            local.lease_term.months,
+                            local.lease_term.include_abatement_in_term ?? false,
+                            newMonths
+                          );
+                          setKeyDates({ expiration });
+                        }
+                      }}
+                      placeholder="0"
+                      min="0"
+                      hint="Number of months of free rent at commencement"
+                    />
+                    <Select
+                      label="Abatement Applies To"
+                      value={local.concessions.abatement_applies_to || "base_only"}
+                      onChange={(e) => setConcessions({ abatement_applies_to: e.currentTarget.value as "base_only" | "base_plus_nnn" })}
+                      placeholder="Select abatement type"
+                      options={[
+                        { value: 'base_only', label: 'Base Rent Only' },
+                        { value: 'base_plus_nnn', label: 'Base Rent + NNN' },
+                      ]}
+                    />
+                  </div>
+                  
+                  {/* Toggle to include abatement months in lease term - Always visible */}
+                  {local.lease_term && (
+                    <div className="flex items-center gap-2 pt-2 border-t">
+                      <input
+                        type="checkbox"
+                        id="include-abatement-in-term"
+                        checked={local.lease_term.include_abatement_in_term ?? false}
+                        onChange={(e) => {
+                          const includeAbatement = e.target.checked;
+                          const years = local.lease_term?.years || 0;
+                          const months = local.lease_term?.months || 0;
+                          const abatementMonths = local.concessions.abatement_free_rent_months ?? 0;
+                          
+                          updateField('lease_term', { 
+                            years, 
+                            months, 
+                            include_abatement_in_term: includeAbatement 
+                          });
+                          
+                          // Recalculate expiration
+                          if (local.key_dates.commencement) {
+                            const expiration = calculateExpiration(
+                              local.key_dates.commencement,
+                              years,
+                              months,
+                              includeAbatement,
+                              abatementMonths
+                            );
+                            setKeyDates({ expiration });
+                          }
+                        }}
+                        className="rounded"
+                      />
+                      <Label htmlFor="include-abatement-in-term" className="text-sm font-normal cursor-pointer">
+                        Add free rent months to lease term
+                      </Label>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-sm font-medium">Abatement Periods</Label>
+                    <Button variant="outline" onClick={addAbatementPeriod} size="sm">
+                      <Plus className="mr-2 h-4 w-4" />
+                      Add Period
+                    </Button>
+                  </div>
+                  {local.concessions.abatement_periods && local.concessions.abatement_periods.length > 0 ? (
+                    <DndContext
+                      sensors={sensors}
+                      collisionDetection={closestCenter}
+                      onDragEnd={handleAbatementPeriodDragEnd}
+                    >
+                      <SortableContext
+                        items={local.concessions.abatement_periods.map((_, idx) => `abatement-period-${idx}`)}
+                        strategy={verticalListSortingStrategy}
+                      >
+                        <div className="space-y-3">
+                          {local.concessions.abatement_periods.map((period, idx) => (
+                            <AbatementPeriodRow
+                              key={`abatement-period-${idx}`}
+                              id={`abatement-period-${idx}`}
+                              period={period}
+                              idx={idx}
+                              setAbatementPeriod={setAbatementPeriod}
+                              deleteAbatementPeriod={deleteAbatementPeriod}
+                            />
+                          ))}
+                        </div>
+                      </SortableContext>
+                    </DndContext>
+                  ) : (
+                    <div className="text-sm text-muted-foreground p-4 border rounded-lg text-center">
+                      No abatement periods added. Click "Add Period" to create one.
+                    </div>
+                  )}
+                  
+                  {/* Toggle to include abatement months in lease term - Always visible */}
+                  {local.lease_term && (
+                    <div className="flex items-center gap-2 pt-2 border-t">
+                      <input
+                        type="checkbox"
+                        id="include-abatement-in-term-custom"
+                        checked={local.lease_term.include_abatement_in_term ?? false}
+                        onChange={(e) => {
+                          const includeAbatement = e.target.checked;
+                          const years = local.lease_term?.years || 0;
+                          const months = local.lease_term?.months || 0;
+                          const abatementMonths = getAbatementMonths(local.concessions);
+                          
+                          updateField('lease_term', { 
+                            years, 
+                            months, 
+                            include_abatement_in_term: includeAbatement 
+                          });
+                          
+                          // Recalculate expiration
+                          if (local.key_dates.commencement) {
+                            const expiration = calculateExpiration(
+                              local.key_dates.commencement,
+                              years,
+                              months,
+                              includeAbatement,
+                              abatementMonths
+                            );
+                            setKeyDates({ expiration });
+                          }
+                        }}
+                        className="rounded"
+                      />
+                      <Label htmlFor="include-abatement-in-term-custom" className="text-sm font-normal cursor-pointer">
+                        Add free rent months to lease term
+                      </Label>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+          
+          {/* TI Shortfall Summary */}
+          {local.concessions.ti_actual_build_cost_psf !== undefined && local.concessions.ti_allowance_psf !== undefined && (
+            <div className="bg-muted/50 border rounded-lg p-2 mt-2">
+              <div className="text-sm font-medium mb-1.5">TI Shortfall Analysis</div>
+              {(() => {
+                const shortfall = calculateTIShortfall(
+                  local.rsf,
+                  local.concessions.ti_allowance_psf,
+                  local.concessions.ti_actual_build_cost_psf,
+                  undefined
+                );
+                return (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
+                    <div>
+                      <span className="text-muted-foreground">Allowance Total:</span>
+                      <div className="font-medium">${shortfall.allowanceTotal.toLocaleString()}</div>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">Actual Cost Total:</span>
+                      <div className="font-medium">${shortfall.actualCostTotal.toLocaleString()}</div>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">Tenant Contribution:</span>
+                      <div className={`font-medium ${shortfall.tenantContribution > 0 ? 'text-destructive' : 'text-green-600'}`}>
+                        ${shortfall.tenantContribution.toLocaleString()}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card className="rounded-2xl md:col-span-2">
+        <CardHeader>
+          <CardTitle>
+            {local.lease_type === "FS" 
+              ? "Base Rent, Operating Expense Pass-Throughs, and Parking"
+              : "Base Rent, Operating Expenses, and Parking"}
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="grid gap-3">
+          {/* Base Rent Section */}
+          <div>
+            <h3 className="text-sm font-medium mb-2">Base Rent</h3>
+            <div className="space-y-3">
+              <CurrencyInput
+                label="Base Rent $/SF"
+                value={defaultRentPeriod.rent_psf}
+                onChange={(value) => updateDefaultRentPeriod({ rent_psf: value || 0 })}
+                placeholder="0.00"
+                hint="Base rent per square foot per year ($/SF/yr)"
+                currency="$/SF"
+              />
+              
+              <Select
+                label="Escalation Type"
+                value={local.rent_escalation?.escalation_type || "fixed"}
+                onChange={(e) => {
+                  const escalationType = e.currentTarget.value as "fixed" | "custom";
+                  if (escalationType === "fixed") {
+                    // Clear custom periods when switching to fixed
+                    updateField('rent_escalation', { 
+                      escalation_type: escalationType,
+                      escalation_periods: undefined 
+                    });
+                  } else {
+                    // Initialize with empty periods array when switching to custom
+                    updateField('rent_escalation', { 
+                      escalation_type: escalationType,
+                      escalation_periods: local.rent_escalation?.escalation_periods || []
+                    });
+                  }
+                }}
+                placeholder="Select escalation type"
+                options={[
+                  { value: 'fixed', label: 'Fixed Annual Escalations' },
+                  { value: 'custom', label: 'Custom Escalations' },
+                ]}
+              />
+
+              {(local.rent_escalation?.escalation_type === "fixed" || !local.rent_escalation?.escalation_type) ? (
+                <PercentageInput
+                  label="Annual Escalation"
+                  value={(local.rent_escalation?.fixed_escalation_percentage ?? (defaultRentPeriod.escalation_percentage ?? 0)) * 100}
+                  onChange={(value) => {
+                    const escalationPercentage = (value || 0) / 100;
+                    updateField('rent_escalation', { 
+                      escalation_type: "fixed",
+                      fixed_escalation_percentage: escalationPercentage
+                    });
+                    // Also update the default rent period for backward compatibility
+                    updateDefaultRentPeriod({ escalation_percentage: escalationPercentage });
+                  }}
+                  placeholder="3.0"
+                  hint="Annual escalation rate (applies to entire lease term)"
+                />
+              ) : (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-sm font-medium">Escalation Periods</Label>
+                    <Button variant="outline" onClick={addEscalationPeriod} size="sm">
+                      <Plus className="mr-2 h-4 w-4" />
+                      Add Period
+                    </Button>
+                  </div>
+                  {local.rent_escalation?.escalation_periods && local.rent_escalation.escalation_periods.length > 0 ? (
+                    <DndContext
+                      sensors={sensors}
+                      collisionDetection={closestCenter}
+                      onDragEnd={handleEscalationPeriodDragEnd}
+                    >
+                      <SortableContext
+                        items={local.rent_escalation.escalation_periods.map((_, idx) => `escalation-period-${idx}`)}
+                        strategy={verticalListSortingStrategy}
+                      >
+                        <div className="space-y-3">
+                          {local.rent_escalation.escalation_periods.map((period, idx) => (
+                            <EscalationPeriodRow
+                              key={`escalation-period-${idx}`}
+                              id={`escalation-period-${idx}`}
+                              period={period}
+                              idx={idx}
+                              setEscalationPeriod={setEscalationPeriod}
+                              deleteEscalationPeriod={deleteEscalationPeriod}
+                            />
+                          ))}
+                        </div>
+                      </SortableContext>
+                    </DndContext>
+                  ) : (
+                    <div className="text-sm text-muted-foreground p-4 border rounded-lg text-center">
+                      No escalation periods added. Click "Add Period" to create one.
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+          
+          {/* Operating Expenses Section */}
+          <div className="pt-3 border-t">
+            <h3 className="text-sm font-medium mb-2">
+              {local.lease_type === "FS" ? "Operating Expense Pass-Throughs" : "Operating Expenses"}
+            </h3>
+            <div className="space-y-3">
+              <CurrencyInput
+                label="OpEx $/SF"
+                value={local.operating.est_op_ex_psf}
+                onChange={(value) => setOperating({ est_op_ex_psf: value })}
+                placeholder="0.00"
+                hint={
+                  local.lease_type === "FS" 
+                    ? "Base year operating expenses per square foot (tenant pays increases above this)"
+                    : "Estimated operating expenses per square foot"
+                }
+              />
+              
+              <Select
+                label="Escalation Type"
+                value={local.operating.escalation_type || "fixed"}
+                onChange={(e) => {
+                  const escalationType = e.currentTarget.value as "fixed" | "custom";
+                  if (escalationType === "fixed") {
+                    // Clear custom periods when switching to fixed
+                    setOperating({ 
+                      escalation_type: escalationType,
+                      escalation_periods: undefined 
+                    });
+                  } else {
+                    // Initialize with empty periods array when switching to custom
+                    setOperating({ 
+                      escalation_type: escalationType,
+                      escalation_periods: local.operating.escalation_periods || []
+                    });
+                  }
+                }}
+                placeholder="Select escalation type"
+                options={[
+                  { value: 'fixed', label: 'Fixed Annual Escalations' },
+                  { value: 'custom', label: 'Custom Escalations' },
+                ]}
+              />
+
+              {(local.operating.escalation_type === "fixed" || !local.operating.escalation_type) ? (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <PercentageInput
+                    label="OpEx Escalation %"
+                    value={(local.operating.escalation_value ?? 0) * 100}
+                    onChange={(value) => setOperating({ escalation_value: (value || 0) / 100 })}
+                    placeholder="0.00"
+                    hint="Annual escalation rate (fixed percentage)"
+                  />
+                  <PercentageInput
+                    label="OpEx Escalation Cap"
+                    value={(local.operating.escalation_cap ?? 0) * 100}
+                    onChange={(value) => setOperating({ escalation_cap: (value || 0) / 100 })}
+                    placeholder="0.00"
+                    hint="Maximum escalation rate (optional)"
+                  />
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-sm font-medium">Escalation Periods</Label>
+                    <Button variant="outline" onClick={addOpExEscalationPeriod} size="sm">
+                      <Plus className="mr-2 h-4 w-4" />
+                      Add Period
+                    </Button>
+                  </div>
+                  {local.operating.escalation_periods && local.operating.escalation_periods.length > 0 ? (
+                    <DndContext
+                      sensors={sensors}
+                      collisionDetection={closestCenter}
+                      onDragEnd={handleOpExEscalationPeriodDragEnd}
+                    >
+                      <SortableContext
+                        items={local.operating.escalation_periods.map((_, idx) => `opex-escalation-period-${idx}`)}
+                        strategy={verticalListSortingStrategy}
+                      >
+                        <div className="space-y-3">
+                          {local.operating.escalation_periods.map((period, idx) => (
+                            <OpExEscalationPeriodRow
+                              key={`opex-escalation-period-${idx}`}
+                              id={`opex-escalation-period-${idx}`}
+                              period={period}
+                              idx={idx}
+                              setOpExEscalationPeriod={setOpExEscalationPeriod}
+                              deleteOpExEscalationPeriod={deleteOpExEscalationPeriod}
+                            />
+                          ))}
+                        </div>
+                      </SortableContext>
+                    </DndContext>
+                  ) : (
+                    <div className="text-sm text-muted-foreground p-4 border rounded-lg text-center">
+                      No escalation periods added. Click "Add Period" to create one.
+                    </div>
+                  )}
+                  <PercentageInput
+                    label="OpEx Escalation Cap"
+                    value={(local.operating.escalation_cap ?? 0) * 100}
+                    onChange={(value) => setOperating({ escalation_cap: (value || 0) / 100 })}
+                    placeholder="0.00"
+                    hint="Maximum escalation rate (optional, applies to all periods)"
+                  />
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Parking Section */}
+          <div className="pt-3 border-t">
+            <h3 className="text-sm font-medium mb-2">Parking</h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+              <ValidatedInput
+                label="# Spaces"
+                type="number"
+                value={local.parking?.stalls ?? 0}
+                onChange={(e) => setParking({ stalls: Number(e.currentTarget.value) })}
+                placeholder="0"
+                min="0"
+                hint="Number of parking spaces"
+              />
+              <CurrencyInput
+                label="Parking Rate $/stall/mo"
+                value={local.parking?.monthly_rate_per_stall}
+                onChange={(value) => setParking({ monthly_rate_per_stall: value })}
+                placeholder="0.00"
+                hint="Monthly parking rate per stall"
+              />
+              <PercentageInput
+                label="Parking Escalation %"
+                value={local.parking?.escalation_value}
+                onChange={(value) => setParking({ escalation_value: value })}
+                placeholder="0.00"
+                hint="Annual escalation rate (fixed percentage)"
+              />
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card className="rounded-2xl">
+        <CardHeader>
+          <CardTitle>Transaction Costs</CardTitle>
+        </CardHeader>
+        <CardContent className="grid gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
             <CurrencyInput
-              label="Parking $/stall/mo"
-              value={local.parking?.monthly_rate_per_stall}
-              onChange={(value) => setParking({ monthly_rate_per_stall: value })}
+              label="Legal Fees"
+              value={local.transaction_costs?.legal_fees}
+              onChange={(value) => {
+                const current = local.transaction_costs || {};
+                const total = (value || 0) + (current.brokerage_fees || 0) + (current.due_diligence || 0) + (current.environmental || 0) + (current.other || 0);
+                updateField('transaction_costs', { ...current, legal_fees: value, total });
+              }}
               placeholder="0.00"
-              hint="Monthly parking rate per stall"
             />
-            <ValidatedInput
-              label="# Stalls"
-              type="number"
-              value={local.parking?.stalls ?? 0}
-              onChange={(e) => setParking({ stalls: Number(e.currentTarget.value) })}
-              placeholder="0"
-              min="0"
-              hint="Number of parking stalls"
-            />
-            <Select
-              label="Parking Method"
-              value={local.parking?.escalation_method ?? "fixed"}
-              onChange={(e) => setParking({ escalation_method: e.currentTarget.value as "fixed" | "cpi" })}
-              placeholder="Select escalation method"
-              options={[
-                { value: 'fixed', label: 'Fixed %' },
-                { value: 'cpi', label: 'CPI' },
-              ]}
-            />
-            <PercentageInput
-              label="Parking Escalation"
-              value={local.parking?.escalation_value}
-              onChange={(value) => setParking({ escalation_value: value })}
+            <CurrencyInput
+              label="Brokerage Fees"
+              value={local.transaction_costs?.brokerage_fees}
+              onChange={(value) => {
+                const current = local.transaction_costs || {};
+                const total = (current.legal_fees || 0) + (value || 0) + (current.due_diligence || 0) + (current.environmental || 0) + (current.other || 0);
+                updateField('transaction_costs', { ...current, brokerage_fees: value, total });
+              }}
               placeholder="0.00"
-              hint="Annual parking escalation rate"
             />
+            <CurrencyInput
+              label="Due Diligence"
+              value={local.transaction_costs?.due_diligence}
+              onChange={(value) => {
+                const current = local.transaction_costs || {};
+                const total = (current.legal_fees || 0) + (current.brokerage_fees || 0) + (value || 0) + (current.environmental || 0) + (current.other || 0);
+                updateField('transaction_costs', { ...current, due_diligence: value, total });
+              }}
+              placeholder="0.00"
+            />
+            <CurrencyInput
+              label="Environmental"
+              value={local.transaction_costs?.environmental}
+              onChange={(value) => {
+                const current = local.transaction_costs || {};
+                const total = (current.legal_fees || 0) + (current.brokerage_fees || 0) + (current.due_diligence || 0) + (value || 0) + (current.other || 0);
+                updateField('transaction_costs', { ...current, environmental: value, total });
+              }}
+              placeholder="0.00"
+            />
+            <CurrencyInput
+              label="Other"
+              value={local.transaction_costs?.other}
+              onChange={(value) => {
+                const current = local.transaction_costs || {};
+                const total = (current.legal_fees || 0) + (current.brokerage_fees || 0) + (current.due_diligence || 0) + (current.environmental || 0) + (value || 0);
+                updateField('transaction_costs', { ...current, other: value, total });
+              }}
+              placeholder="0.00"
+            />
+            <div className="flex items-center gap-2 border rounded-lg p-3 bg-muted/50">
+              <Label className="text-sm font-medium">Total:</Label>
+              <span className="text-sm font-semibold">
+                ${(local.transaction_costs?.total || 0).toLocaleString()}
+              </span>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card className="rounded-2xl">
+        <CardHeader>
+          <CardTitle>Financing / Amortization</CardTitle>
+        </CardHeader>
+        <CardContent className="grid gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="space-y-2">
+              <Label className="text-sm font-medium">Amortize Costs</Label>
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={local.financing?.amortize_ti || false}
+                    onChange={(e) => updateField('financing', {
+                      ...local.financing,
+                      amortize_ti: e.target.checked,
+                      amortization_method: local.financing?.amortization_method || "straight_line",
+                      amortize_free_rent: local.financing?.amortize_free_rent || false,
+                      amortize_transaction_costs: local.financing?.amortize_transaction_costs || false,
+                    })}
+                    className="rounded"
+                  />
+                  <Label className="text-sm">Amortize TI Allowance</Label>
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={local.financing?.amortize_free_rent || false}
+                    onChange={(e) => updateField('financing', {
+                      ...local.financing,
+                      amortize_free_rent: e.target.checked,
+                      amortization_method: local.financing?.amortization_method || "straight_line",
+                      amortize_ti: local.financing?.amortize_ti || false,
+                      amortize_transaction_costs: local.financing?.amortize_transaction_costs || false,
+                    })}
+                    className="rounded"
+                  />
+                  <Label className="text-sm">Amortize Free Rent</Label>
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={local.financing?.amortize_transaction_costs || false}
+                    onChange={(e) => updateField('financing', {
+                      ...local.financing,
+                      amortize_transaction_costs: e.target.checked,
+                      amortization_method: local.financing?.amortization_method || "straight_line",
+                      amortize_ti: local.financing?.amortize_ti || false,
+                      amortize_free_rent: local.financing?.amortize_free_rent || false,
+                    })}
+                    className="rounded"
+                  />
+                  <Label className="text-sm">Amortize Transaction Costs</Label>
+                </div>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Select
+                label="Amortization Method"
+                value={local.financing?.amortization_method || "straight_line"}
+                onChange={(e) => updateField('financing', {
+                  ...local.financing,
+                  amortization_method: e.currentTarget.value as "straight_line" | "present_value",
+                  amortize_ti: local.financing?.amortize_ti || false,
+                  amortize_free_rent: local.financing?.amortize_free_rent || false,
+                  amortize_transaction_costs: local.financing?.amortize_transaction_costs || false,
+                })}
+                options={[
+                  { value: 'straight_line', label: 'Straight Line' },
+                  { value: 'present_value', label: 'Present Value' },
+                ]}
+              />
+              {local.financing?.amortization_method === "present_value" && (
+                <PercentageInput
+                  label="Interest Rate"
+                  value={local.financing?.interest_rate}
+                  onChange={(value) => updateField('financing', {
+                    ...local.financing,
+                    interest_rate: value,
+                  })}
+                  placeholder="8.0"
+                  hint="Interest rate for PV amortization"
+                />
+              )}
+            </div>
           </div>
         </CardContent>
       </Card>
 
       <Card className="rounded-2xl md:col-span-2">
         <CardHeader>
-          <CardTitle>Rent Schedule & Abatement</CardTitle>
+          <CardTitle>These notes</CardTitle>
         </CardHeader>
-        <CardContent className="grid gap-4">
-          <DndContext
-            sensors={sensors}
-            collisionDetection={closestCenter}
-            onDragEnd={handleRentScheduleDragEnd}
-          >
-            <SortableContext
-              items={local.rent_schedule.map((_, idx) => `rent-row-${idx}`)}
-              strategy={verticalListSortingStrategy}
-            >
-              {local.rent_schedule.map((r, idx) => (
-                <RentScheduleRow
-                  key={`rent-row-${idx}`}
-                  id={`rent-row-${idx}`}
-                  row={r}
-                  idx={idx}
-                  setRentRow={setRentRow}
-                  deleteRentRow={deleteRentRow}
-                />
+        <CardContent className="space-y-4">
+          <Textarea
+            value={local.notes || ""}
+            onChange={(e) => updateField('notes', e.currentTarget.value)}
+            placeholder="Enter notes about this analysis..."
+            rows={6}
+            className="min-h-[150px]"
+          />
+          
+          <div className="space-y-2">
+            <Label>Files</Label>
+            <div className="flex flex-wrap gap-2">
+              {local.attachedFiles && local.attachedFiles.length > 0 && local.attachedFiles.map((file, idx) => (
+                <div key={idx} className="flex items-center gap-2 px-3 py-2 bg-muted rounded-lg">
+                  <File className="h-4 w-4 text-muted-foreground" />
+                  <span className="text-sm">{file.name}</span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 w-6 p-0"
+                    onClick={() => {
+                      const newFiles = local.attachedFiles?.filter((_, i) => i !== idx) || [];
+                      updateField('attachedFiles', newFiles);
+                    }}
+                  >
+                    <X className="h-3 w-3" />
+                  </Button>
+                </div>
               ))}
-            </SortableContext>
-          </DndContext>
-          <div>
-            <Button variant="outline" onClick={addRentRow}>
-              <Plus className="mr-2 h-4 w-4" />
-              Add Period
-            </Button>
+            </div>
+            <div>
+              <input
+                type="file"
+                id="file-upload"
+                accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                className="hidden"
+                onChange={(e) => {
+                  const files = Array.from(e.target.files || []);
+                  if (files.length > 0) {
+                    const newFiles = files.map(file => ({
+                      name: file.name,
+                      size: file.size,
+                      type: file.type,
+                      file: file,
+                    }));
+                    const existingFiles = local.attachedFiles || [];
+                    updateField('attachedFiles', [...existingFiles, ...newFiles]);
+                  }
+                  // Reset input
+                  e.target.value = '';
+                }}
+                multiple
+              />
+              <Button
+                variant="outline"
+                type="button"
+                onClick={() => document.getElementById('file-upload')?.click()}
+              >
+                <Upload className="mr-2 h-4 w-4" />
+                Add files
+              </Button>
+              <p className="text-xs text-muted-foreground mt-1">
+                PDF or Word documents (max 10MB per file)
+              </p>
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -2609,12 +4146,588 @@ function ProposalTab({ a, onSave }: { a: AnalysisMeta; onSave: (patch: AnalysisM
   );
 }
 
-const AnalysisTab = React.memo(function AnalysisTab({ lines }: { lines: AnnualLine[] }) {
+// Helper function to export table to CSV
+function exportTableToCSV(lines: AnnualLine[], rsf: number, meta: AnalysisMeta): void {
+  if (typeof window === 'undefined') return; // Server-side guard
+  if (!lines || lines.length === 0) return; // Empty data guard
+  if (!rsf || rsf <= 0) return; // Invalid RSF guard
+  
+  const hasTIShortfall = lines.some(r => (r.ti_shortfall || 0) !== 0);
+  const hasTransactionCosts = lines.some(r => (r.transaction_costs || 0) !== 0);
+  const hasAmortizedCosts = lines.some(r => (r.amortized_costs || 0) !== 0);
+  
+  // Calculate cumulative
+  let cumulative = 0;
+  const cumulativeValues: number[] = [];
+  lines.forEach((line) => {
+    cumulative += line.net_cash_flow;
+    cumulativeValues.push(cumulative);
+  });
+  
+  // Build CSV headers
+  const headers = [
+    'Year',
+    'Base Rent',
+    'Base Rent $/SF',
+    'Op. Pass-Through',
+    'Parking',
+    'Abatement (credit)',
+    ...(hasTIShortfall ? ['TI Shortfall'] : []),
+    ...(hasTransactionCosts ? ['Transaction Costs'] : []),
+    ...(hasAmortizedCosts ? ['Amortized Costs'] : []),
+    'Subtotal',
+    'Net Cash Flow',
+    'Net CF $/SF',
+    'Cumulative NCF',
+  ];
+  
+  // Build CSV rows
+  const rows = lines.map((r, idx) => [
+    r.year.toString(),
+    r.base_rent.toFixed(2),
+    (rsf > 0 ? (r.base_rent / rsf) : 0).toFixed(2),
+    r.operating.toFixed(2),
+    (r.parking || 0).toFixed(2),
+    r.abatement_credit.toFixed(2),
+    ...(hasTIShortfall ? [(r.ti_shortfall || 0).toFixed(2)] : []),
+    ...(hasTransactionCosts ? [(r.transaction_costs || 0).toFixed(2)] : []),
+    ...(hasAmortizedCosts ? [(r.amortized_costs || 0).toFixed(2)] : []),
+    r.subtotal.toFixed(2),
+    r.net_cash_flow.toFixed(2),
+    (rsf > 0 ? (r.net_cash_flow / rsf) : 0).toFixed(2),
+    (cumulativeValues[idx] || 0).toFixed(2),
+  ]);
+  
+  // Calculate totals
+  const totals = lines.reduce((acc, r) => ({
+    base_rent: acc.base_rent + r.base_rent,
+    operating: acc.operating + r.operating,
+    parking: acc.parking + (r.parking || 0),
+    abatement_credit: acc.abatement_credit + r.abatement_credit,
+    ti_shortfall: acc.ti_shortfall + (r.ti_shortfall || 0),
+    transaction_costs: acc.transaction_costs + (r.transaction_costs || 0),
+    amortized_costs: acc.amortized_costs + (r.amortized_costs || 0),
+    subtotal: acc.subtotal + r.subtotal,
+    net_cash_flow: acc.net_cash_flow + r.net_cash_flow,
+  }), {
+    base_rent: 0,
+    operating: 0,
+    parking: 0,
+    abatement_credit: 0,
+    ti_shortfall: 0,
+    transaction_costs: 0,
+    amortized_costs: 0,
+    subtotal: 0,
+    net_cash_flow: 0,
+  });
+  
+  const avgBaseRentPSF = totals.base_rent / (rsf * lines.length);
+  const avgNetCFPSF = totals.net_cash_flow / (rsf * lines.length);
+  
+  // Add totals row
+  rows.push([
+    'TOTAL',
+    totals.base_rent.toFixed(2),
+    avgBaseRentPSF.toFixed(2),
+    totals.operating.toFixed(2),
+    totals.parking.toFixed(2),
+    totals.abatement_credit.toFixed(2),
+    ...(hasTIShortfall ? [totals.ti_shortfall.toFixed(2)] : []),
+    ...(hasTransactionCosts ? [totals.transaction_costs.toFixed(2)] : []),
+    ...(hasAmortizedCosts ? [totals.amortized_costs.toFixed(2)] : []),
+    totals.subtotal.toFixed(2),
+    totals.net_cash_flow.toFixed(2),
+    avgNetCFPSF.toFixed(2),
+    cumulativeValues[cumulativeValues.length - 1].toFixed(2),
+  ]);
+  
+  // Convert to CSV string
+  const csvContent = [
+    headers.join(','),
+    ...rows.map(row => row.join(',')),
+  ].join('\n');
+  
+  // Download
+  try {
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${meta.name.replace(/[^a-z0-9]/gi, '_')}_cashflow_${new Date().toISOString().split('T')[0]}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  } catch (error) {
+    console.error('Failed to export CSV:', error);
+  }
+}
+
+// Helper function to copy table to clipboard
+function copyTableToClipboard(lines: AnnualLine[], rsf: number, meta: AnalysisMeta): void {
+  if (typeof window === 'undefined') return; // Server-side guard
+  if (typeof navigator === 'undefined' || !navigator.clipboard) return; // Clipboard API not available
+  if (!lines || lines.length === 0) return; // Empty data guard
+  if (!rsf || rsf <= 0) return; // Invalid RSF guard
+  
+  const hasTIShortfall = lines.some(r => (r.ti_shortfall || 0) !== 0);
+  const hasTransactionCosts = lines.some(r => (r.transaction_costs || 0) !== 0);
+  const hasAmortizedCosts = lines.some(r => (r.amortized_costs || 0) !== 0);
+  
+  let cumulative = 0;
+  const cumulativeValues: number[] = [];
+  lines.forEach((line) => {
+    cumulative += line.net_cash_flow;
+    cumulativeValues.push(cumulative);
+  });
+  
+  const fmtPSF = (value: number) => `$${(value || 0).toFixed(2)}/SF`;
+  
+  // Build text table
+  const headers = [
+    'Year',
+    'Base Rent',
+    'Base Rent $/SF',
+    'Op. Pass-Through',
+    'Parking',
+    'Abatement',
+    ...(hasTIShortfall ? ['TI Shortfall'] : []),
+    ...(hasTransactionCosts ? ['Trans. Costs'] : []),
+    ...(hasAmortizedCosts ? ['Amortized'] : []),
+    'Subtotal',
+    'Net CF',
+    'Net CF $/SF',
+    'Cumulative',
+  ].join('\t');
+  
+  const rows = lines.map((r, idx) => [
+    r.year.toString(),
+    fmtMoney(r.base_rent),
+    fmtPSF(rsf > 0 ? (r.base_rent / rsf) : 0),
+    fmtMoney(r.operating),
+    fmtMoney(r.parking || 0),
+    fmtMoney(r.abatement_credit),
+    ...(hasTIShortfall ? [fmtMoney(r.ti_shortfall || 0)] : []),
+    ...(hasTransactionCosts ? [fmtMoney(r.transaction_costs || 0)] : []),
+    ...(hasAmortizedCosts ? [fmtMoney(r.amortized_costs || 0)] : []),
+    fmtMoney(r.subtotal),
+    fmtMoney(r.net_cash_flow),
+    fmtPSF(rsf > 0 ? (r.net_cash_flow / rsf) : 0),
+    fmtMoney(cumulativeValues[idx] || 0),
+  ].join('\t'));
+  
+  const textContent = [headers, ...rows].join('\n');
+  
+  try {
+    navigator.clipboard.writeText(textContent).then(() => {
+      // Could show a toast notification here
+    }).catch(err => {
+      console.error('Failed to copy to clipboard:', err);
+    });
+  } catch (error) {
+    console.error('Clipboard API not available:', error);
+  }
+}
+
+const AnalysisTab = React.memo(function AnalysisTab({ lines, meta }: { lines: AnnualLine[]; meta: AnalysisMeta }) {
+  // Check for missing critical data
+  const dataQuality = React.useMemo(() => {
+    const issues: string[] = [];
+    if (!meta.key_dates.commencement || !meta.key_dates.expiration) {
+      issues.push("Missing lease dates");
+    }
+    if (!meta.rsf || meta.rsf === 0) {
+      issues.push("RSF not set");
+    }
+    if (!meta.rent_schedule || meta.rent_schedule.length === 0) {
+      issues.push("No rent schedule");
+    }
+    if (lines.length === 0) {
+      issues.push("No cashflow data");
+    }
+    return {
+      hasIssues: issues.length > 0,
+      issues,
+    };
+  }, [meta, lines]);
+
+  const yieldMetrics = React.useMemo(() => {
+    // Calculate initial investment (TI + transaction costs + free rent value + TI shortfall if paid upfront)
+    const tiTotal = (meta.concessions.ti_allowance_psf || 0) * meta.rsf;
+    const transactionTotal = meta.transaction_costs?.total || 0;
+    const freeRentValue = meta.rent_schedule.length > 0 
+      ? (() => {
+          let freeRentValue = 0;
+          if (meta.concessions?.abatement_type === "at_commencement") {
+            const freeMonths = meta.concessions.abatement_free_rent_months || 0;
+            if (freeMonths > 0 && meta.rent_schedule.length > 0) {
+              freeRentValue = (freeMonths / 12) * (meta.rent_schedule[0].rent_psf * meta.rsf);
+            }
+          } else if (meta.concessions?.abatement_type === "custom" && meta.concessions.abatement_periods) {
+            for (const period of meta.concessions.abatement_periods) {
+              let rentRate = 0;
+              for (const r of meta.rent_schedule) {
+                const rStart = new Date(r.period_start);
+                const rEnd = new Date(r.period_end);
+                const periodStart = new Date(period.period_start);
+                if (periodStart >= rStart && periodStart <= rEnd) {
+                  rentRate = r.rent_psf;
+                  break;
+                }
+              }
+              freeRentValue += (period.free_rent_months / 12) * (rentRate * meta.rsf);
+            }
+          }
+          return freeRentValue;
+        })()
+      : 0;
+    const tiShortfall = lines.length > 0 && lines[0].ti_shortfall ? lines[0].ti_shortfall : 0;
+    const initialInvestment = tiTotal + transactionTotal + freeRentValue + tiShortfall;
+    
+    const discountRate = meta.cashflow_settings?.discount_rate || 0.08;
+    return calculateLandlordYield(lines, initialInvestment, discountRate);
+  }, [lines, meta]);
+
+  // Calculate summary statistics
+  const summaryStats = React.useMemo(() => {
+    const totalLeaseValue = lines.reduce((sum, line) => sum + line.net_cash_flow, 0);
+    const averageAnnualCashflow = lines.length > 0 ? totalLeaseValue / lines.length : 0;
+    
+    // Calculate lease term - handle missing dates gracefully
+    let leaseTermYears = 0;
+    let leaseTermMonths = 0;
+    if (meta.key_dates.commencement && meta.key_dates.expiration) {
+      const commencement = new Date(meta.key_dates.commencement);
+      const expiration = new Date(meta.key_dates.expiration);
+      if (!isNaN(commencement.getTime()) && !isNaN(expiration.getTime()) && expiration > commencement) {
+        leaseTermYears = (expiration.getTime() - commencement.getTime()) / (1000 * 60 * 60 * 24 * 365.25);
+        leaseTermMonths = Math.round(leaseTermYears * 12);
+      }
+    }
+    
+    // Use actual lease term or fallback to number of years in cashflow
+    const effectiveTermYears = leaseTermYears > 0 ? leaseTermYears : lines.length;
+    const effectiveRentPSFValue = effectiveRentPSF(lines, meta.rsf, effectiveTermYears);
+    
+    const startingRent = lines.length > 0 ? lines[0].base_rent : 0;
+    const endingRent = lines.length > 0 ? lines[lines.length - 1].base_rent : 0;
+    
+    // Calculate free rent value for concessions total
+    const freeRentValue = meta.rent_schedule.length > 0 
+      ? (() => {
+          let freeRentValue = 0;
+          if (meta.concessions?.abatement_type === "at_commencement") {
+            const freeMonths = meta.concessions.abatement_free_rent_months || 0;
+            if (freeMonths > 0 && meta.rent_schedule.length > 0) {
+              freeRentValue = (freeMonths / 12) * (meta.rent_schedule[0].rent_psf * meta.rsf);
+            }
+          } else if (meta.concessions?.abatement_type === "custom" && meta.concessions.abatement_periods) {
+            for (const period of meta.concessions.abatement_periods) {
+              let rentRate = 0;
+              for (const r of meta.rent_schedule) {
+                const rStart = new Date(r.period_start);
+                const rEnd = new Date(r.period_end);
+                const periodStart = new Date(period.period_start);
+                if (periodStart >= rStart && periodStart <= rEnd) {
+                  rentRate = r.rent_psf;
+                  break;
+                }
+              }
+              freeRentValue += (period.free_rent_months / 12) * (rentRate * meta.rsf);
+            }
+          }
+          return freeRentValue;
+        })()
+      : 0;
+    
+    const totalConcessions = 
+      (meta.concessions.ti_allowance_psf || 0) * meta.rsf +
+      (meta.concessions.moving_allowance || 0) +
+      (meta.concessions.other_credits || 0) +
+      freeRentValue;
+    
+    return {
+      totalLeaseValue,
+      averageAnnualCashflow,
+      effectiveRentPSFValue,
+      leaseTermYears,
+      leaseTermMonths,
+      startingRent,
+      endingRent,
+      totalConcessions,
+      freeRentValue,
+    };
+  }, [lines, meta]);
+
+  // Calculate lease term display
+  const leaseTermDisplay = React.useMemo(() => {
+    if (summaryStats.leaseTermYears <= 0 && summaryStats.leaseTermMonths <= 0) {
+      return "Not set";
+    }
+    const years = Math.floor(summaryStats.leaseTermYears);
+    const months = summaryStats.leaseTermMonths % 12;
+    if (years > 0 && months > 0) {
+      return `${years} year${years !== 1 ? 's' : ''}, ${months} month${months !== 1 ? 's' : ''}`;
+    } else if (years > 0) {
+      return `${years} year${years !== 1 ? 's' : ''}`;
+    } else {
+      return `${months} month${months !== 1 ? 's' : ''}`;
+    }
+  }, [summaryStats.leaseTermYears, summaryStats.leaseTermMonths]);
+
   return (
     <div className="space-y-4">
-      <YearTable lines={lines} />
-      <div className="text-xs text-muted-foreground">
-        * Net Cash Flow includes abatement as a credit only; TI, moving, and other credits are summarized outside NCF.
+      {/* Data Quality Warning */}
+      {dataQuality.hasIssues && (
+        <Card className="rounded-2xl border-yellow-200 bg-yellow-50">
+          <CardHeader>
+            <CardTitle className="text-yellow-800 flex items-center gap-2">
+              <span>⚠️</span>
+              <span>Incomplete Data</span>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-sm text-yellow-700 mb-2">
+              Some calculations may be inaccurate due to missing information:
+            </p>
+            <ul className="list-disc list-inside text-sm text-yellow-700 space-y-1">
+              {dataQuality.issues.map((issue, idx) => (
+                <li key={idx}>{issue}</li>
+              ))}
+            </ul>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Deal Terms Summary Card */}
+      <DealTermsSummaryCard meta={meta} />
+
+      {/* Lease Summary Card */}
+      <Card className="rounded-2xl">
+        <CardHeader>
+          <CardTitle>Lease Summary</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+            <div>
+              <Label className="text-xs text-muted-foreground">Lease Term</Label>
+              <div className="text-sm font-semibold">{leaseTermDisplay}</div>
+            </div>
+            <div>
+              <Label className="text-xs text-muted-foreground">RSF</Label>
+              <div className="text-sm font-semibold">{meta.rsf.toLocaleString()} SF</div>
+            </div>
+            <div>
+              <Label className="text-xs text-muted-foreground">Lease Type</Label>
+              <div className="text-sm font-semibold">{meta.lease_type === 'FS' ? 'Full Service' : 'Triple Net'}</div>
+            </div>
+            <div>
+              <Label className="text-xs text-muted-foreground">Market</Label>
+              <div className="text-sm font-semibold">{meta.market}</div>
+            </div>
+            <div>
+              <Label className="text-xs text-muted-foreground">Commencement</Label>
+              <div className="text-sm font-semibold">
+                {meta.key_dates.commencement 
+                  ? new Date(meta.key_dates.commencement).toLocaleDateString()
+                  : "Not set"}
+              </div>
+            </div>
+            <div>
+              <Label className="text-xs text-muted-foreground">Expiration</Label>
+              <div className="text-sm font-semibold">
+                {meta.key_dates.expiration 
+                  ? new Date(meta.key_dates.expiration).toLocaleDateString()
+                  : "Not set"}
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Summary Statistics Card */}
+      <Card className="rounded-2xl">
+        <CardHeader>
+          <CardTitle>Financial Summary</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+            <div>
+              <Label className="text-xs text-muted-foreground">Total Lease Value</Label>
+              <div className="text-lg font-semibold">
+                ${summaryStats.totalLeaseValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+              </div>
+            </div>
+            <div>
+              <Label className="text-xs text-muted-foreground">Avg. Annual Cashflow</Label>
+              <div className="text-lg font-semibold">
+                ${summaryStats.averageAnnualCashflow.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+              </div>
+            </div>
+            <div>
+              <Label className="text-xs text-muted-foreground">Effective Rent $/SF</Label>
+              <div className="text-lg font-semibold">
+                ${summaryStats.effectiveRentPSFValue.toFixed(2)}/SF/yr
+              </div>
+            </div>
+            <div>
+              <Label className="text-xs text-muted-foreground">Starting Rent</Label>
+              <div className="text-lg font-semibold">
+                ${summaryStats.startingRent.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+              </div>
+            </div>
+            <div>
+              <Label className="text-xs text-muted-foreground">Ending Rent</Label>
+              <div className="text-lg font-semibold">
+                ${summaryStats.endingRent.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+              </div>
+            </div>
+            <div>
+              <Label className="text-xs text-muted-foreground">Total Concessions</Label>
+              <div className="text-lg font-semibold">
+                ${summaryStats.totalConcessions.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Yield Metrics Summary */}
+      <Card className="rounded-2xl">
+        <CardHeader>
+          <CardTitle className="flex items-center justify-between">
+            <span>Financial Metrics</span>
+            <span className="text-xs font-normal text-muted-foreground">
+              Discount Rate: {((meta.cashflow_settings?.discount_rate || 0.08) * 100).toFixed(1)}%
+            </span>
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-4">
+            {/* Return Metrics */}
+            <div>
+              <Label className="text-sm font-medium mb-2 block">Return Metrics</Label>
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
+                <div>
+                  <Label className="text-xs text-muted-foreground" title="Net Present Value at discount rate">NPV</Label>
+                  <div className="text-xl font-bold text-primary">
+                    ${yieldMetrics.npv.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                  </div>
+                </div>
+                <div>
+                  <Label className="text-xs text-muted-foreground" title="NPV per square foot per year">NPV $/SF/yr</Label>
+                  <div className="text-xl font-bold text-primary">
+                    {summaryStats.leaseTermYears > 0 && meta.rsf > 0 
+                      ? `$${(yieldMetrics.npv / (meta.rsf * summaryStats.leaseTermYears)).toFixed(2)}/SF/yr`
+                      : "$0.00/SF/yr"}
+                  </div>
+                </div>
+                <div>
+                  <Label className="text-xs text-muted-foreground" title="Internal Rate of Return - annualized return percentage">IRR</Label>
+                  <div className="text-xl font-bold text-primary">
+                    {yieldMetrics.irr.toFixed(2)}%
+                  </div>
+                  {yieldMetrics.irr > 0 && yieldMetrics.irr < 8 && (
+                    <div className="text-xs text-yellow-600 mt-1">Below market (8-12%)</div>
+                  )}
+                </div>
+                <div>
+                  <Label className="text-xs text-muted-foreground" title="Annual cashflow return on initial investment">Yield on Cost</Label>
+                  <div className="text-lg font-semibold">
+                    {yieldMetrics.yieldOnCost.toFixed(2)}%
+                  </div>
+                </div>
+                <div>
+                  <Label className="text-xs text-muted-foreground" title="Total return divided by initial investment">Equity Multiple</Label>
+                  <div className="text-lg font-semibold">
+                    {yieldMetrics.equityMultiple.toFixed(2)}x
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            {/* Time & Risk Metrics */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 border-t">
+              <div>
+                <Label className="text-sm font-medium mb-2 block">Time Metrics</Label>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label className="text-xs text-muted-foreground" title="Year when cumulative cashflow becomes positive">Payback Period</Label>
+                    <div className="text-lg font-semibold">
+                      {yieldMetrics.paybackPeriod} {yieldMetrics.paybackPeriod === 1 ? 'year' : 'years'}
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div>
+                <Label className="text-sm font-medium mb-2 block">Cash Return Metrics</Label>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label className="text-xs text-muted-foreground" title="Total cash return over lease term">Cash-on-Cash Return</Label>
+                    <div className="text-lg font-semibold">
+                      {yieldMetrics.cashOnCashReturn.toFixed(2)}%
+                    </div>
+                  </div>
+                  <div>
+                    <Label className="text-xs text-muted-foreground" title="Average annual return on investment">Net Yield</Label>
+                    <div className="text-lg font-semibold">
+                      {yieldMetrics.netYield.toFixed(2)}%
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Detailed Cash Flow Table */}
+      <DetailedCashflowTable lines={lines} meta={meta} />
+      
+      <Card className="rounded-2xl">
+        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+          <CardTitle>Annual Cashflow</CardTitle>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => copyTableToClipboard(lines, meta.rsf, meta)}
+              className="rounded-lg"
+              title="Copy table to clipboard"
+            >
+              <Copy className="h-4 w-4 mr-1" />
+              <span className="hidden sm:inline">Copy</span>
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => exportTableToCSV(lines, meta.rsf, meta)}
+              className="rounded-lg"
+              title="Export table to CSV"
+            >
+              <Download className="h-4 w-4 mr-1" />
+              <span className="hidden sm:inline">CSV</span>
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => window.print()}
+              className="rounded-lg"
+              title="Print view"
+            >
+              <Printer className="h-4 w-4 mr-1" />
+              <span className="hidden sm:inline">Print</span>
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <YearTable lines={lines} rsf={meta.rsf} meta={meta} />
+        </CardContent>
+      </Card>
+      <div className="text-xs text-muted-foreground space-y-1">
+        <div>* Net Cash Flow includes: base rent, operating pass-throughs, parking, abatement credits, TI shortfall (if applicable), transaction costs (if applicable), and amortized costs (if financing enabled).</div>
+        <div>* TI allowance, moving allowance, and other credits are not included in Net Cash Flow (they are upfront costs, not recurring cashflow).</div>
+        <div>* Break-even year (BE) indicates when cumulative cashflow becomes positive.</div>
       </div>
     </div>
   );

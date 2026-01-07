@@ -18,62 +18,105 @@ interface State {
   hasError: boolean;
   error: Error | null;
   errorInfo: ErrorInfo | null;
+  requestId: string | null;
 }
 
 export class ErrorBoundary extends Component<Props, State> {
   constructor(props: Props) {
     super(props);
-    this.state = { hasError: false, error: null, errorInfo: null };
+    this.state = { hasError: false, error: null, errorInfo: null, requestId: null };
   }
 
   static getDerivedStateFromError(error: Error): State {
     // Update state so the next render will show the fallback UI
-    return { hasError: true, error, errorInfo: null };
+    return { hasError: true, error, errorInfo: null, requestId: null };
   }
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+    // #region agent log
+    const requestId = crypto.randomUUID();
+    fetch('http://127.0.0.1:7242/ingest/cbd4c245-b3ae-4bd5-befa-846cd00012b5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ErrorBoundary.tsx:34',message:'ErrorBoundary componentDidCatch entry',data:{requestId,errorMessage:error.message,errorName:error.name,hasErrorInfo:!!errorInfo,hasOnError:!!this.props.onError},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+    // #endregion
     // Log error details
     console.error('ErrorBoundary caught an error:', error, errorInfo);
     
-    // Update state with error info
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/cbd4c245-b3ae-4bd5-befa-846cd00012b5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ErrorBoundary.tsx:38',message:'ErrorBoundary before setState',data:{requestId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+    // #endregion
+    // Update state with error info and request ID
     this.setState({
       error,
-      errorInfo
+      errorInfo,
+      requestId
     });
 
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/cbd4c245-b3ae-4bd5-befa-846cd00012b5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ErrorBoundary.tsx:47',message:'ErrorBoundary before onError callback',data:{requestId,hasOnError:!!this.props.onError},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+    // #endregion
     // Call optional error handler
     if (this.props.onError) {
       this.props.onError(error, errorInfo);
     }
 
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/cbd4c245-b3ae-4bd5-befa-846cd00012b5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ErrorBoundary.tsx:50',message:'ErrorBoundary before reportError',data:{requestId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+    // #endregion
     // Report to error tracking service (if available)
-    this.reportError(error, errorInfo);
+    // Pass requestId directly since setState is async and state won't be updated yet
+    this.reportError(error, errorInfo, requestId);
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/cbd4c245-b3ae-4bd5-befa-846cd00012b5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ErrorBoundary.tsx:51',message:'ErrorBoundary componentDidCatch exit',data:{requestId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+    // #endregion
   }
 
-  private reportError(error: Error, errorInfo: ErrorInfo) {
+  private reportError(error: Error, errorInfo: ErrorInfo, requestId?: string) {
+    // Use provided requestId, fallback to state, or generate new one
+    const finalRequestId = requestId || this.state.requestId || crypto.randomUUID();
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/cbd4c245-b3ae-4bd5-befa-846cd00012b5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ErrorBoundary.tsx:71',message:'ErrorBoundary reportError entry',data:{requestId:finalRequestId,errorMessage:error.message,hasStack:!!error.stack,hasComponentStack:!!errorInfo.componentStack},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+    // #endregion
     // In a real app, you'd send this to your error tracking service
     // For now, we'll just log it with more context
     const errorReport = {
+      requestId: finalRequestId,
       message: error.message,
       stack: error.stack,
       componentStack: errorInfo.componentStack,
       timestamp: new Date().toISOString(),
-      userAgent: navigator.userAgent,
-      url: window.location.href,
+      userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : 'unknown',
+      url: typeof window !== 'undefined' ? window.location.href : 'unknown',
     };
     
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/cbd4c245-b3ae-4bd5-befa-846cd00012b5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ErrorBoundary.tsx:86',message:'ErrorBoundary reportError before console.error',data:{requestId:finalRequestId,errorReportKeys:Object.keys(errorReport)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+    // #endregion
     console.group('🚨 Error Report');
+    console.error('Request ID:', finalRequestId);
     console.error('Error:', errorReport);
+    console.error('Full Error Object:', error);
+    console.error('Error Info:', errorInfo);
     console.groupEnd();
+    
+    // Also log to window for debugging
+    if (typeof window !== 'undefined') {
+      (window as any).__lastError = {
+        requestId: finalRequestId,
+        error: errorReport,
+        timestamp: new Date().toISOString()
+      };
+    }
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/cbd4c245-b3ae-4bd5-befa-846cd00012b5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ErrorBoundary.tsx:90',message:'ErrorBoundary reportError after console.error',data:{requestId:finalRequestId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+    // #endregion
   }
 
   private handleRetry = () => {
-    this.setState({ hasError: false, error: null, errorInfo: null });
+    this.setState({ hasError: false, error: null, errorInfo: null, requestId: null });
   };
 
   private handleGoHome = () => {
     // Reset error state and navigate to home
-    this.setState({ hasError: false, error: null, errorInfo: null });
+    this.setState({ hasError: false, error: null, errorInfo: null, requestId: null });
     window.location.href = '/';
   };
 
@@ -114,6 +157,14 @@ export class ErrorBoundary extends Component<Props, State> {
                     Error Details (Development)
                   </summary>
                   <div className="space-y-2 text-sm">
+                    {this.state.requestId && (
+                      <div>
+                        <strong>Request ID:</strong>
+                        <pre className="bg-background p-2 rounded mt-1 overflow-auto font-mono text-xs">
+                          {this.state.requestId}
+                        </pre>
+                      </div>
+                    )}
                     <div>
                       <strong>Error:</strong>
                       <pre className="bg-background p-2 rounded mt-1 overflow-auto">

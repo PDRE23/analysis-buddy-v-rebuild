@@ -16,12 +16,19 @@ export function setupSupabaseErrorHandler() {
 
   // Handle unhandled promise rejections (like Supabase fetch failures)
   const handleUnhandledRejection = (event: PromiseRejectionEvent) => {
+    // #region agent log
+    const requestId = crypto.randomUUID();
+    fetch('http://127.0.0.1:7242/ingest/cbd4c245-b3ae-4bd5-befa-846cd00012b5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'errorHandler.ts:18',message:'Supabase errorHandler handleUnhandledRejection entry',data:{requestId,hasReason:!!event.reason,reasonType:typeof event.reason,isError:event.reason instanceof Error},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+    // #endregion
     const error = event.reason;
     const errorMessage = error?.message?.toLowerCase() || '';
     const errorName = error?.name?.toLowerCase() || '';
     const errorStack = error?.stack?.toLowerCase() || '';
     const errorString = String(error).toLowerCase();
     
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/cbd4c245-b3ae-4bd5-befa-846cd00012b5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'errorHandler.ts:27',message:'Supabase errorHandler before isSupabaseError check',data:{requestId,errorMessage,errorName,hasErrorStack:!!errorStack},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+    // #endregion
     // Check if this is a network/fetch error related to Supabase
     // Also check the stack trace for Supabase auth-js library paths
     const isSupabaseError = 
@@ -45,6 +52,9 @@ export function setupSupabaseErrorHandler() {
       errorStack.includes('refreshaccesstoken') ||
       errorStack.includes('_autoRefreshTokenTick');
     
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/cbd4c245-b3ae-4bd5-befa-846cd00012b5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'errorHandler.ts:48',message:'Supabase errorHandler after isSupabaseError check',data:{requestId,isSupabaseError,errorLogged:window.__supabaseErrorLogged},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+    // #endregion
     if (isSupabaseError) {
       // Suppress the error - it's already handled by our timeout/fallback logic
       // Only log once per error type to avoid spam
@@ -56,10 +66,16 @@ export function setupSupabaseErrorHandler() {
           window.__supabaseErrorLogged = false;
         }, 5000);
       }
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/cbd4c245-b3ae-4bd5-befa-846cd00012b5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'errorHandler.ts:60',message:'Supabase errorHandler suppressing Supabase error',data:{requestId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+      // #endregion
       event.preventDefault(); // Prevent default error logging
       return;
     }
     
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/cbd4c245-b3ae-4bd5-befa-846cd00012b5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'errorHandler.ts:64',message:'Supabase errorHandler logging non-Supabase error',data:{requestId,errorMessage},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+    // #endregion
     // For other errors, log them normally
     console.error('Unhandled promise rejection:', error);
   };

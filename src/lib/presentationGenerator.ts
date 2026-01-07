@@ -3,9 +3,11 @@
  * Slide generation logic, data transformation for slides
  */
 
-import type { AnalysisMeta, Proposal } from "@/components/LeaseAnalyzerApp";
-import type { AnnualLine } from "@/components/LeaseAnalyzerApp";
-import { buildAnnualCashflow, effectiveRentPSF, npv } from "@/components/LeaseAnalyzerApp";
+import type { AnalysisMeta, Proposal, AnnualLine } from "@/types";
+
+import { buildAnnualCashflow } from "./calculations/cashflow-engine";
+import { effectiveRentPSF } from "./calculations/metrics-engine";
+import { npv } from "./calculations/metrics-engine";
 
 export interface PresentationSlide {
   id: string;

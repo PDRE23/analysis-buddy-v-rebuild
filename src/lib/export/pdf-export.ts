@@ -26,7 +26,6 @@ export interface AnalysisData {
   rsf: number;
   lease_type: string;
   base_year?: number;
-  expense_stop_psf?: number;
   key_dates: {
     commencement: string;
     rent_start: string;
@@ -214,9 +213,6 @@ function addSummarySection(doc: jsPDF, data: ExportData, yPosition: number): num
 
   if (data.analysis.lease_type === 'FS' && data.analysis.base_year) {
     summaryData.push(['Base Year', data.analysis.base_year.toString()]);
-  }
-  if (data.analysis.lease_type === 'NNN' && data.analysis.expense_stop_psf) {
-    summaryData.push(['Expense Stop', fmtRate(data.analysis.expense_stop_psf)]);
   }
 
   autoTable(doc, {

@@ -6,6 +6,7 @@
  */
 
 import React, { useState } from "react";
+
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -14,14 +15,18 @@ import { Badge } from "@/components/ui/badge";
 import { Save, Plus, X, TrendingUp, TrendingDown } from "lucide-react";
 import { CurrencyInput } from "@/components/ui/currency-input";
 import { PercentageInput } from "@/components/ui/percentage-input";
+
 import {
   saveScenario,
   getScenariosForAnalysis,
   applyScenarioModifications,
   type Scenario,
 } from "@/lib/templates";
-import type { AnalysisMeta } from "../LeaseAnalyzerApp";
-import { buildAnnualCashflow, effectiveRentPSF, npv } from "../LeaseAnalyzerApp";
+
+import type { AnalysisMeta } from "@/types";
+import { buildAnnualCashflow } from "@/lib/calculations/cashflow-engine";
+import { effectiveRentPSF } from "@/lib/calculations/metrics-engine";
+import { npv } from "@/lib/calculations/metrics-engine";
 
 interface ScenarioBuilderProps {
   baseAnalysis: AnalysisMeta;

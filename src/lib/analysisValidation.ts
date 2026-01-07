@@ -13,6 +13,7 @@ import {
   validateRSF, 
   validateDiscountRate,
   validateRentSchedule,
+  validateLeaseTermConsistency,
   smartValidateAnalysisMeta
 } from './validation';
 
@@ -53,6 +54,26 @@ export const validateAnalysisMeta = (meta: AnalysisMeta): ValidationError[] => {
   // Validate RSF
   errors.push(...validateRSF(meta.rsf));
 
+  // Validate USF and load factor
+  if (meta.usf !== undefined) {
+    if (meta.usf <= 0) {
+      errors.push({
+        field: 'usf',
+        message: 'USF must be greater than 0',
+        type: 'format',
+        severity: 'error'
+      });
+    }
+    if (meta.rsf > 0 && meta.usf > meta.rsf) {
+      errors.push({
+        field: 'usf',
+        message: 'USF cannot be greater than RSF',
+        type: 'business',
+        severity: 'error'
+      });
+    }
+  }
+
   // Validate lease type
   if (!meta.lease_type || !['FS', 'NNN'].includes(meta.lease_type)) {
     errors.push({
@@ -88,6 +109,9 @@ export const validateAnalysisMeta = (meta: AnalysisMeta): ValidationError[] => {
     meta.key_dates.commencement,
     meta.key_dates.expiration
   ));
+
+  // Validate lease term consistency
+  errors.push(...validateLeaseTermConsistency(meta));
 
   // Validate operating expenses
   if (meta.operating.est_op_ex_psf !== undefined) {
@@ -128,6 +152,77 @@ export const validateAnalysisMeta = (meta: AnalysisMeta): ValidationError[] => {
     errors.push(...validatePositiveNumber(meta.parking.escalation_value, 'Parking Escalation'));
   }
 
+  // Validate transaction costs
+  if (meta.transaction_costs) {
+    if (meta.transaction_costs.legal_fees !== undefined) {
+      errors.push(...validatePositiveNumber(meta.transaction_costs.legal_fees, 'Legal Fees', 0));
+    }
+    if (meta.transaction_costs.brokerage_fees !== undefined) {
+      errors.push(...validatePositiveNumber(meta.transaction_costs.brokerage_fees, 'Brokerage Fees', 0));
+    }
+    if (meta.transaction_costs.due_diligence !== undefined) {
+      errors.push(...validatePositiveNumber(meta.transaction_costs.due_diligence, 'Due Diligence', 0));
+    }
+    if (meta.transaction_costs.environmental !== undefined) {
+      errors.push(...validatePositiveNumber(meta.transaction_costs.environmental, 'Environmental', 0));
+    }
+    if (meta.transaction_costs.other !== undefined) {
+      errors.push(...validatePositiveNumber(meta.transaction_costs.other, 'Other Transaction Costs', 0));
+    }
+  }
+
+  // Validate financing
+  if (meta.financing) {
+    if (meta.financing.amortization_method && !['straight_line', 'present_value'].includes(meta.financing.amortization_method)) {
+      errors.push({
+        field: 'financing.amortization_method',
+        message: 'Amortization method must be straight_line or present_value',
+        type: 'format',
+        severity: 'error'
+      });
+    }
+    if (meta.financing.amortization_method === 'present_value' && (!meta.financing.interest_rate || meta.financing.interest_rate <= 0)) {
+      errors.push({
+        field: 'financing.interest_rate',
+        message: 'Interest rate is required for present value amortization',
+        type: 'required',
+        severity: 'error'
+      });
+    }
+  }
+
+  // Validate termination options
+  if (meta.options) {
+    meta.options.forEach((option, index) => {
+      if (option.type === 'Termination') {
+        if (!option.notice_months || option.notice_months <= 0) {
+          errors.push({
+            field: `options[${index}].notice_months`,
+            message: 'Notice months is required for termination options',
+            type: 'required',
+            severity: 'error'
+          });
+        }
+        if (option.fee_months_of_rent !== undefined && option.fee_months_of_rent < 0) {
+          errors.push({
+            field: `options[${index}].fee_months_of_rent`,
+            message: 'Fee months of rent cannot be negative',
+            type: 'format',
+            severity: 'error'
+          });
+        }
+        if (option.base_rent_penalty !== undefined && option.base_rent_penalty < 0) {
+          errors.push({
+            field: `options[${index}].base_rent_penalty`,
+            message: 'Base rent penalty cannot be negative',
+            type: 'format',
+            severity: 'error'
+          });
+        }
+      }
+    });
+  }
+
   // Validate rent schedule
   errors.push(...validateRentSchedule(meta.rent_schedule));
 
@@ -154,11 +249,6 @@ export const validateAnalysisMeta = (meta: AnalysisMeta): ValidationError[] => {
         });
       }
     }
-  }
-
-  // Validate expense stop for NNN leases
-  if (meta.lease_type === 'NNN' && meta.expense_stop_psf !== undefined) {
-    errors.push(...validatePositiveNumber(meta.expense_stop_psf, 'Expense Stop'));
   }
 
   return errors;

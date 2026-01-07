@@ -97,10 +97,11 @@ const validateAnalysisData = (analyses: AnalysisData[]): { valid: boolean; error
     if (!analysis.id) {
       errors.push(`Analysis ${index + 1} missing required ID`);
     }
-    if (!analysis.name || typeof analysis.name !== 'string') {
+    // Allow empty strings for draft analyses - only check that field exists and is a string
+    if (analysis.name === undefined || analysis.name === null || typeof analysis.name !== 'string') {
       errors.push(`Analysis ${index + 1} missing required name`);
     }
-    if (!analysis.tenant_name || typeof analysis.tenant_name !== 'string') {
+    if (analysis.tenant_name === undefined || analysis.tenant_name === null || typeof analysis.tenant_name !== 'string') {
       errors.push(`Analysis ${index + 1} missing required tenant name`);
     }
   });

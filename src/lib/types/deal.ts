@@ -147,7 +147,7 @@ export interface DealFilters {
   tags?: string[];
 }
 
-export type DealView = "kanban" | "list" | "cards";
+export type DealView = "kanban" | "list";
 
 // Helper function to get stage color
 export function getStageColor(stage: DealStage): string {

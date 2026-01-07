@@ -21,11 +21,15 @@ import {
   PolarRadiusAxis,
   Radar,
 } from "recharts";
+
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Download } from "lucide-react";
-import type { Proposal, AnalysisMeta } from "@/components/LeaseAnalyzerApp";
-import { buildAnnualCashflow, effectiveRentPSF, npv } from "@/components/LeaseAnalyzerApp";
+
+import type { Proposal, AnalysisMeta } from "@/types";
+import { buildAnnualCashflow } from "@/lib/calculations/cashflow-engine";
+import { effectiveRentPSF } from "@/lib/calculations/metrics-engine";
+import { npv } from "@/lib/calculations/metrics-engine";
 
 interface ComparisonChartProps {
   proposals: Proposal[];

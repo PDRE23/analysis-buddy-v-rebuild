@@ -2,6 +2,8 @@
  * Form validation utilities for Lease Analyzer
  */
 
+import type { AnalysisMeta } from "@/components/LeaseAnalyzerApp";
+
 export interface ValidationError {
   field: string;
   message: string;
@@ -178,6 +180,60 @@ export const validateLeaseTerm = (
 };
 
 /**
+ * Validate that lease_term matches calculated expiration date
+ */
+export const validateLeaseTermConsistency = (
+  meta: AnalysisMeta
+): ValidationError[] => {
+  const errors: ValidationError[] = [];
+  
+  if (!meta.lease_term || !meta.key_dates.commencement || !meta.key_dates.expiration) {
+    return errors; // Let other validations handle missing fields
+  }
+  
+  // Calculate expected expiration from lease_term
+  // Get abatement months
+  let abatementMonths = 0;
+  if (meta.concessions?.abatement_type === "at_commencement") {
+    abatementMonths = meta.concessions.abatement_free_rent_months || 0;
+  } else if (meta.concessions?.abatement_type === "custom" && meta.concessions.abatement_periods) {
+    abatementMonths = meta.concessions.abatement_periods.reduce((sum, p) => sum + p.free_rent_months, 0);
+  }
+  
+  const includeAbatement = meta.lease_term.include_abatement_in_term ?? false;
+  
+  // Calculate expected expiration (reuse calculateExpiration logic)
+  const start = new Date(meta.key_dates.commencement);
+  const expectedExp = new Date(start);
+  expectedExp.setFullYear(expectedExp.getFullYear() + meta.lease_term.years);
+  expectedExp.setMonth(expectedExp.getMonth() + meta.lease_term.months);
+  
+  if (includeAbatement && abatementMonths > 0) {
+    expectedExp.setMonth(expectedExp.getMonth() + abatementMonths);
+  }
+  
+  // Set to last day of final month
+  expectedExp.setMonth(expectedExp.getMonth() + 1);
+  expectedExp.setDate(0);
+  
+  const actualExp = new Date(meta.key_dates.expiration);
+  
+  // Allow 1 day tolerance for date calculation differences
+  const diffDays = Math.abs((actualExp.getTime() - expectedExp.getTime()) / (1000 * 60 * 60 * 24));
+  
+  if (diffDays > 1) {
+    errors.push({
+      field: 'lease_term',
+      message: `Lease term (${meta.lease_term.years} years, ${meta.lease_term.months} months) does not match calculated expiration date`,
+      type: 'business',
+      severity: 'warning'
+    });
+  }
+  
+  return errors;
+};
+
+/**
  * Validate rent schedule
  */
 export const validateRentSchedule = (rentSchedule: Array<{
@@ -310,7 +366,6 @@ export const getFieldDisplayName = (field: string): string => {
     'rsf': 'RSF',
     'lease_type': 'Lease Type',
     'base_year': 'Base Year',
-    'expense_stop_psf': 'Expense Stop',
     'commencement': 'Commencement Date',
     'rent_start': 'Rent Start Date',
     'expiration': 'Expiration Date',

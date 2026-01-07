@@ -124,6 +124,8 @@ export function AppContainer() {
 
   // Keyboard shortcut for command palette (Cmd/Ctrl + K)
   useEffect(() => {
+    if (typeof window === 'undefined' || typeof navigator === 'undefined') return;
+    
     const handleKeyDown = (e: KeyboardEvent) => {
       const isMac = navigator.platform.includes("Mac");
       const isModKey = isMac ? e.metaKey : e.ctrlKey;

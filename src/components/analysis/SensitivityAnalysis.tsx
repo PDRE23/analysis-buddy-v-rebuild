@@ -13,8 +13,8 @@ import {
   performSensitivityAnalysis,
   type SensitivityAnalysis as SensitivityAnalysisType,
 } from "@/lib/financialModeling";
-import type { AnnualLine, AnalysisMeta } from "@/components/LeaseAnalyzerApp";
-import { npv } from "@/components/LeaseAnalyzerApp";
+import type { AnnualLine, AnalysisMeta } from "@/types";
+import { npv } from "@/lib/calculations/metrics-engine";
 
 interface SensitivityAnalysisProps {
   analysis: AnalysisMeta;

@@ -23,9 +23,20 @@ export function calculateSectionCompletion(
   let completedFields = 0;
   const totalFields = fields.length;
   
+  // Fields that should not be 0 (treat 0 as incomplete)
+  const nonZeroFields = ['rsf', 'operating.est_op_ex_psf', 'parking.monthly_rate_per_stall'];
+  
   for (const field of fields) {
     const value = getNestedValue(data, field);
-    if (value !== undefined && value !== null && value !== '') {
+    // Check if field is filled
+    let isFilled = value !== undefined && value !== null && value !== '';
+    
+    // For specific numeric fields, also check that value is not 0
+    if (isFilled && typeof value === 'number' && nonZeroFields.includes(field)) {
+      isFilled = value !== 0;
+    }
+    
+    if (isFilled) {
       completedFields++;
     }
   }
@@ -66,7 +77,7 @@ export function getAllSectionStatuses(data: AnalysisMeta, errors: ValidationErro
     },
     {
       name: 'Lease Terms',
-      fields: ['base_year', 'expense_stop_psf']
+      fields: ['base_year']
     },
     {
       name: 'Operating Expenses',

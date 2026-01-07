@@ -7,6 +7,7 @@ import type { DailyUpdate, DailyUpdateConfig, DealUpdateStatus } from "./types/t
 
 const DAILY_UPDATES_KEY = 'bsquared-daily-updates';
 const CONFIG_KEY = 'bsquared-daily-tracking-config';
+const DAILY_UPDATES_COMPLETION_KEY = 'bsquared-daily-updates-completion';
 
 const DEFAULT_CONFIG: DailyUpdateConfig = {
   requireAllActive: true,
@@ -221,9 +222,94 @@ export function getDealsNeedingUpdates(
 }
 
 /**
+ * Check if daily updates were completed today
+ */
+export function hasCompletedDailyUpdatesToday(): boolean {
+  if (!isLocalStorageAvailable()) {
+    return false;
+  }
+
+  try {
+    const stored = localStorage.getItem(DAILY_UPDATES_COMPLETION_KEY);
+    if (stored) {
+      const completionDate = stored;
+      return isToday(completionDate);
+    }
+  } catch {
+    // Return false on error
+  }
+
+  return false;
+}
+
+/**
+ * Mark daily updates as completed for today
+ */
+export function markDailyUpdatesCompleted(): void {
+  if (!isLocalStorageAvailable()) {
+    return;
+  }
+
+  try {
+    const today = getTodayDateString();
+    localStorage.setItem(DAILY_UPDATES_COMPLETION_KEY, today);
+  } catch (error) {
+    console.error('Failed to mark daily updates as completed:', error);
+  }
+}
+
+/**
+ * Get the last date daily updates were completed
+ */
+export function getLastDailyUpdatesCompletionDate(): string | undefined {
+  if (!isLocalStorageAvailable()) {
+    return undefined;
+  }
+
+  try {
+    const stored = localStorage.getItem(DAILY_UPDATES_COMPLETION_KEY);
+    return stored || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Check if user has been away for more than one day
+ */
+function hasBeenAwayMoreThanOneDay(): boolean {
+  const lastCompletion = getLastDailyUpdatesCompletionDate();
+  if (!lastCompletion) {
+    return true; // Never completed, so show it
+  }
+
+  const today = getTodayDateString();
+  const lastDate = new Date(lastCompletion);
+  const todayDate = new Date(today);
+  const diffTime = todayDate.getTime() - lastDate.getTime();
+  const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+  
+  // Return true if more than 1 day has passed (2+ days)
+  return diffDays > 1;
+}
+
+/**
  * Check if user needs to complete daily updates
+ * Only shows if:
+ * 1. Updates haven't been completed today, AND
+ * 2. User has been away for more than one day (or never completed)
  */
 export function needsDailyUpdates(deals: Deal[]): boolean {
+  // If updates were already completed today, don't show the modal
+  if (hasCompletedDailyUpdatesToday()) {
+    return false;
+  }
+
+  // Only show if user has been away for more than one day
+  if (!hasBeenAwayMoreThanOneDay()) {
+    return false;
+  }
+
   const dealsNeedingUpdates = getDealsNeedingUpdates(deals);
   return dealsNeedingUpdates.length > 0 && 
          dealsNeedingUpdates.some(deal => deal.needsUpdate);

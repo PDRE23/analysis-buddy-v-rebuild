@@ -7,11 +7,9 @@ import { Badge } from "@/components/ui/badge";
 import type { Deal, DealStage, DealView } from "@/lib/types/deal";
 import { getStageColor } from "@/lib/types/deal";
 import { DealKanban } from "./DealKanban";
-import { DealCard } from "./DealCard";
 import { FilterBar } from "./FilterBar";
 import { 
   Plus, 
-  LayoutGrid, 
   LayoutList, 
   Kanban, 
   TrendingUp,
@@ -177,7 +175,7 @@ export function Dashboard({
                 className="gap-2"
               >
                 <Clock className="h-4 w-4" />
-                Update Statuses
+                Daily Deal Updates
               </Button>
             )}
             <Button onClick={() => onAddDeal()} className="gap-2">
@@ -237,15 +235,6 @@ export function Dashboard({
               aria-pressed={view === "kanban"}
             >
               <Kanban className="h-4 w-4" />
-            </Button>
-            <Button
-              variant={view === "cards" ? "default" : "outline"}
-              size="sm"
-              onClick={() => setView("cards")}
-              aria-label="Switch to card grid view"
-              aria-pressed={view === "cards"}
-            >
-              <LayoutGrid className="h-4 w-4" />
             </Button>
             <Button
               variant={view === "list" ? "default" : "outline"}
@@ -345,20 +334,6 @@ export function Dashboard({
                     onAddDeal={(stage) => onAddDeal(stage)}
                     showClosedDeals={showClosedDeals}
                   />
-                )}
-
-                {view === "cards" && (
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 overflow-y-auto">
-                    {filteredDeals.map(deal => (
-                      <DealCard
-                        key={deal.id}
-                        deal={deal}
-                        onView={onViewDeal}
-                        onEdit={onEditDeal}
-                        onDelete={onDeleteDeal}
-                      />
-                    ))}
-                  </div>
                 )}
 
                 {view === "list" && (
