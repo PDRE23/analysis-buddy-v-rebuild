@@ -59,7 +59,7 @@ export function DealLinkDropdown({
         // Show link button with dropdown
         <div>
           <Button
-            variant="outline"
+            variant="default"
             size="sm"
             onClick={() => setIsOpen(!isOpen)}
             className="gap-2"

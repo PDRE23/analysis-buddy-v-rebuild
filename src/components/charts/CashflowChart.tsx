@@ -11,6 +11,8 @@ import {
   Line,
   AreaChart,
   Area,
+  BarChart,
+  Bar,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -43,11 +45,12 @@ export function CashflowChart({
   onExport,
 }: CashflowChartProps) {
   const [isZoomed, setIsZoomed] = useState(false);
-  const [showArea, setShowArea] = useState(true);
+  const [chartType, setChartType] = useState<"area" | "line" | "bar">("area");
 
   // Format data for Recharts
-  const chartData = cashflow.map((line) => ({
+  const chartData = cashflow.map((line, idx) => ({
     year: line.year.toString(),
+    yearLabel: `YR ${idx + 1}`,
     netCashFlow: line.net_cash_flow,
     subtotal: line.subtotal,
     baseRent: line.base_rent,
@@ -95,7 +98,7 @@ export function CashflowChart({
     return null;
   };
 
-  const ChartComponent = showArea ? AreaChart : LineChart;
+  const ChartComponent = chartType === "area" ? AreaChart : chartType === "line" ? LineChart : BarChart;
 
   return (
     <Card className="rounded-2xl">
@@ -103,12 +106,28 @@ export function CashflowChart({
         <CardTitle>{title}</CardTitle>
         <div className="flex items-center gap-2">
           <Button
-            variant="outline"
+            variant={chartType === "area" ? "default" : "outline"}
             size="sm"
-            onClick={() => setShowArea(!showArea)}
+            onClick={() => setChartType("area")}
             className="text-xs"
           >
-            {showArea ? "Line" : "Area"}
+            Area
+          </Button>
+          <Button
+            variant={chartType === "line" ? "default" : "outline"}
+            size="sm"
+            onClick={() => setChartType("line")}
+            className="text-xs"
+          >
+            Line
+          </Button>
+          <Button
+            variant={chartType === "bar" ? "default" : "outline"}
+            size="sm"
+            onClick={() => setChartType("bar")}
+            className="text-xs"
+          >
+            Bar
           </Button>
           {onExport && (
             <Button variant="outline" size="sm" onClick={onExport} className="text-xs">
@@ -122,7 +141,8 @@ export function CashflowChart({
         <ResponsiveContainer width="100%" height={height}>
           <ChartComponent
             data={mergedData}
-            margin={{ top: 10, right: 30, left: 0, bottom: 0 }}
+            layout={chartType === "bar" ? "vertical" : undefined}
+            margin={chartType === "bar" ? { top: 10, right: 30, left: 60, bottom: 0 } : { top: 10, right: 30, left: 0, bottom: 0 }}
           >
             <defs>
               <linearGradient id="cashflowGradient" x1="0" y1="0" x2="0" y2="1">
@@ -131,18 +151,39 @@ export function CashflowChart({
               </linearGradient>
             </defs>
             <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-            <XAxis
-              dataKey="year"
-              stroke="#6b7280"
-              tick={{ fontSize: 12 }}
-              label={{ value: "Year", position: "insideBottom", offset: -5 }}
-            />
-            <YAxis
-              stroke="#6b7280"
-              tick={{ fontSize: 12 }}
-              tickFormatter={formatCurrency}
-              label={{ value: "Net Cash Flow ($)", angle: -90, position: "insideLeft" }}
-            />
+            {chartType === "bar" ? (
+              <>
+                <XAxis
+                  type="number"
+                  stroke="#6b7280"
+                  tick={{ fontSize: 12 }}
+                  tickFormatter={formatCurrency}
+                  label={{ value: "Net Cash Flow ($)", position: "insideBottom", offset: -5 }}
+                />
+                <YAxis
+                  type="category"
+                  dataKey="yearLabel"
+                  stroke="#6b7280"
+                  tick={{ fontSize: 12 }}
+                  width={60}
+                />
+              </>
+            ) : (
+              <>
+                <XAxis
+                  dataKey="year"
+                  stroke="#6b7280"
+                  tick={{ fontSize: 12 }}
+                  label={{ value: "Year", position: "insideBottom", offset: -5 }}
+                />
+                <YAxis
+                  stroke="#6b7280"
+                  tick={{ fontSize: 12 }}
+                  tickFormatter={formatCurrency}
+                  label={{ value: "Net Cash Flow ($)", angle: -90, position: "insideLeft" }}
+                />
+              </>
+            )}
             <Tooltip 
               content={<CustomTooltip />}
               animationDuration={200}
@@ -152,9 +193,9 @@ export function CashflowChart({
               wrapperStyle={{ paddingTop: "20px" }}
               iconType="line"
             />
-            <ReferenceLine y={0} stroke="#9ca3af" strokeDasharray="3 3" />
+            {chartType !== "bar" && <ReferenceLine y={0} stroke="#9ca3af" strokeDasharray="3 3" />}
             
-            {showArea ? (
+            {chartType === "area" ? (
               <>
                 <Area
                   type="monotone"
@@ -181,7 +222,7 @@ export function CashflowChart({
                   />
                 )}
               </>
-            ) : (
+            ) : chartType === "line" ? (
               <>
                 <Line
                   type="monotone"
@@ -209,9 +250,29 @@ export function CashflowChart({
                   />
                 )}
               </>
+            ) : (
+              <>
+                <Bar
+                  dataKey="netCashFlow"
+                  fill="#9333ea"
+                  name="Net Cash Flow"
+                  radius={[0, 4, 4, 0]}
+                  animationDuration={500}
+                />
+                {compareWith && (
+                  <Bar
+                    dataKey="compareNetCashFlow"
+                    fill="#10b981"
+                    name={`${compareLabel} - Net Cash Flow`}
+                    radius={[0, 4, 4, 0]}
+                    opacity={0.7}
+                    animationDuration={500}
+                  />
+                )}
+              </>
             )}
             
-            <Brush dataKey="year" height={30} stroke="#9ca3af" />
+            {chartType !== "bar" && <Brush dataKey="year" height={30} stroke="#9ca3af" />}
           </ChartComponent>
         </ResponsiveContainer>
       </CardContent>

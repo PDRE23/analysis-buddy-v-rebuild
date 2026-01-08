@@ -49,6 +49,10 @@ export class AsyncErrorBoundary extends Component<Props, State> {
   };
 
   private handleUnhandledRejection = (event: PromiseRejectionEvent) => {
+    // #region agent log
+    const requestId = crypto.randomUUID();
+    fetch('http://127.0.0.1:7242/ingest/cbd4c245-b3ae-4bd5-befa-846cd00012b5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AsyncErrorBoundary.tsx:51',message:'AsyncErrorBoundary handleUnhandledRejection entry',data:{requestId,reasonType:typeof event.reason,isError:event.reason instanceof Error,hasOnError:!!this.props.onError},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+    // #endregion
     console.error('Unhandled promise rejection:', event.reason);
     
     // Create an error object from the rejection
@@ -56,30 +60,52 @@ export class AsyncErrorBoundary extends Component<Props, State> {
       ? event.reason 
       : new Error(String(event.reason));
     
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/cbd4c245-b3ae-4bd5-befa-846cd00012b5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AsyncErrorBoundary.tsx:59',message:'AsyncErrorBoundary before setState',data:{requestId,errorMessage:error.message},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+    // #endregion
     this.setState({ hasError: true, error });
     
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/cbd4c245-b3ae-4bd5-befa-846cd00012b5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AsyncErrorBoundary.tsx:64',message:'AsyncErrorBoundary before onError callback',data:{requestId,hasOnError:!!this.props.onError},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+    // #endregion
     // Call optional error handler
     if (this.props.onError) {
       this.props.onError(error, { componentStack: 'Async Error Handler' });
     }
     
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/cbd4c245-b3ae-4bd5-befa-846cd00012b5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AsyncErrorBoundary.tsx:68',message:'AsyncErrorBoundary handleUnhandledRejection exit',data:{requestId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+    // #endregion
     // Prevent the default browser behavior
     event.preventDefault();
   };
 
   private handleGlobalError = (event: ErrorEvent) => {
+    // #region agent log
+    const requestId = crypto.randomUUID();
+    fetch('http://127.0.0.1:7242/ingest/cbd4c245-b3ae-4bd5-befa-846cd00012b5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AsyncErrorBoundary.tsx:70',message:'AsyncErrorBoundary handleGlobalError entry',data:{requestId,errorMessage:event.message,hasError:!!event.error,filename:event.filename,lineno:event.lineno},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+    // #endregion
     console.error('Global error:', event.error);
     
     const error = event.error instanceof Error 
       ? event.error 
       : new Error(event.message || 'Unknown error');
     
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/cbd4c245-b3ae-4bd5-befa-846cd00012b5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AsyncErrorBoundary.tsx:77',message:'AsyncErrorBoundary before setState in handleGlobalError',data:{requestId,errorMessage:error.message},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+    // #endregion
     this.setState({ hasError: true, error });
     
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/cbd4c245-b3ae-4bd5-befa-846cd00012b5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AsyncErrorBoundary.tsx:82',message:'AsyncErrorBoundary before onError in handleGlobalError',data:{requestId,hasOnError:!!this.props.onError},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+    // #endregion
     // Call optional error handler
     if (this.props.onError) {
       this.props.onError(error, { componentStack: 'Global Error Handler' });
     }
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/cbd4c245-b3ae-4bd5-befa-846cd00012b5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AsyncErrorBoundary.tsx:85',message:'AsyncErrorBoundary handleGlobalError exit',data:{requestId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+    // #endregion
   };
 
   private handleRetry = () => {

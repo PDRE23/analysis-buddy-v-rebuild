@@ -9,6 +9,7 @@ import { NERSummary } from "./NERSummary";
 import { NERYearlyBreakdown } from "./NERYearlyBreakdown";
 import { NERDealTerms } from "./NERDealTerms";
 import { NERStartingCalculation } from "./NERStartingCalculation";
+import { calculateLeaseTermYears } from "@/lib/leaseTermCalculations";
 
 interface NERAnalysisViewProps {
   analysis: AnalysisMeta;
@@ -20,8 +21,8 @@ export function NERAnalysisView({ analysis, onSave }: NERAnalysisViewProps) {
   const [nerData, setNerData] = useState<NERAnalysis>(() => {
     // Try to extract from analysis or use defaults
     const baseRent = analysis.rent_schedule[0]?.rent_psf || 120;
-    const termYears = analysis.key_dates.expiration 
-      ? (new Date(analysis.key_dates.expiration).getTime() - new Date(analysis.key_dates.commencement).getTime()) / (1000 * 60 * 60 * 24 * 365)
+    const termYears = analysis.key_dates.expiration && analysis.key_dates.commencement
+      ? calculateLeaseTermYears(analysis)
       : 5;
     
     return {

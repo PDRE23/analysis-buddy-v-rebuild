@@ -44,7 +44,7 @@ export function ProspectsApp({ onConvertToDeal }: ProspectsAppProps) {
         id: supabaseUser.id,
         email: supabaseUser.email ?? "",
         name:
-          (supabaseUser.user_metadata?.full_name as string | undefined) ||
+          ('user_metadata' in supabaseUser && supabaseUser.user_metadata?.full_name) ||
           supabaseUser.email ||
           "User",
         role: "user",
@@ -262,7 +262,7 @@ export function ProspectsApp({ onConvertToDeal }: ProspectsAppProps) {
           
           // Track outreach attempt when moving to Attempt stages
           const outreachAttempts = prospect.outreachAttempts || [];
-          let newAttempts = [...outreachAttempts];
+          const newAttempts = [...outreachAttempts];
           
           if (newStage.startsWith("Attempt")) {
             // Add new attempt record

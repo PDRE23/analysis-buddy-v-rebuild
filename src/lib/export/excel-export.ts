@@ -95,9 +95,6 @@ function addSummarySheet(workbook: ExcelJS.Workbook, data: ExportData): void {
   if (data.analysis.lease_type === 'FS' && data.analysis.base_year) {
     summaryData.push(['Base Year', data.analysis.base_year.toString()]);
   }
-  if (data.analysis.lease_type === 'NNN' && data.analysis.expense_stop_psf) {
-    summaryData.push(['Expense Stop ($/SF)', `$${data.analysis.expense_stop_psf.toFixed(2)}/SF/yr`]);
-  }
   
   summaryData.forEach(([label, value]) => {
     const row = sheet.addRow([label, value]);

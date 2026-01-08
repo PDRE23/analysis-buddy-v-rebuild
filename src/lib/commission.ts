@@ -97,29 +97,60 @@ function calculateYear1Rent(analysis: AnalysisMeta): number {
 
 /**
  * Calculate total subsequent years rent
+ * Handles partial years correctly by using actual date ranges
  */
 function calculateSubsequentRent(analysis: AnalysisMeta): number {
   if (!analysis.rent_schedule || analysis.rent_schedule.length === 0) {
     return 0;
   }
   
-  const commencementYear = new Date(analysis.key_dates.commencement).getFullYear();
-  const expirationYear = new Date(analysis.key_dates.expiration).getFullYear();
+  const commencement = new Date(analysis.key_dates.commencement);
+  const expiration = new Date(analysis.key_dates.expiration);
+  const commencementYear = commencement.getFullYear();
+  const expirationYear = expiration.getFullYear();
+  
+  // If lease is less than 1 year, there are no subsequent years
+  if (commencementYear >= expirationYear) {
+    return 0;
+  }
   
   let total = 0;
   
+  // Iterate through each year after the first year
   for (let year = commencementYear + 1; year <= expirationYear; year++) {
+    const yearStart = new Date(`${year}-01-01T00:00:00`);
+    const yearEnd = new Date(`${year}-12-31T23:59:59`);
+    
+    // Calculate overlap between lease term and this calendar year
+    const overlapStart = commencement > yearStart ? commencement : yearStart;
+    const overlapEnd = expiration < yearEnd ? expiration : yearEnd;
+    
+    if (overlapStart >= overlapEnd) continue; // No overlap
+    
+    // Calculate months of overlap (simplified calculation)
+    const monthsDiff = (overlapEnd.getFullYear() - overlapStart.getFullYear()) * 12 +
+                       (overlapEnd.getMonth() - overlapStart.getMonth());
+    const monthsOverlap = Math.max(1, monthsDiff + (overlapEnd.getDate() >= overlapStart.getDate() ? 1 : 0));
+    
+    if (monthsOverlap <= 0) continue;
+    
     // Find the rent period for this year
     for (const period of analysis.rent_schedule) {
-      const periodStart = new Date(period.period_start).getFullYear();
-      const periodEnd = new Date(period.period_end).getFullYear();
+      const periodStart = new Date(period.period_start);
+      const periodEnd = new Date(period.period_end);
       
-      if (year >= periodStart && year <= periodEnd) {
+      // Check if this year overlaps with the period
+      if (overlapStart <= periodEnd && overlapEnd >= periodStart) {
         // Calculate escalated rent for this year within the period
-        const yearsInPeriod = year - periodStart;
+        const periodStartYear = periodStart.getFullYear();
+        const yearsInPeriod = year - periodStartYear;
         const escalationRate = period.escalation_percentage ?? 0;
         const escalatedRate = period.rent_psf * Math.pow(1 + escalationRate, yearsInPeriod);
-        total += escalatedRate * analysis.rsf;
+        
+        // Calculate annual rent, then prorate for months of overlap
+        const annualRent = escalatedRate * analysis.rsf;
+        const proratedRent = (annualRent * monthsOverlap) / 12;
+        total += proratedRent;
         break;
       }
     }

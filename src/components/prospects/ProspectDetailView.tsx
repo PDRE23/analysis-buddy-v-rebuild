@@ -306,7 +306,7 @@ export function ProspectDetailView({
             {prospect.followUps.length === 0 ? (
               <Card>
                 <CardContent className="py-8 text-center text-gray-500">
-                  No follow-ups scheduled. Click "Schedule Follow-up" to add one.
+                  No follow-ups scheduled. Click &quot;Schedule Follow-up&quot; to add one.
                 </CardContent>
               </Card>
             ) : (
