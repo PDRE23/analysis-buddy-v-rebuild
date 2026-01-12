@@ -4007,7 +4007,7 @@ function ProposalTab({ a, onSave }: { a: AnalysisMeta; onSave: (patch: AnalysisM
                     </DndContext>
                   ) : (
                     <div className="text-sm text-muted-foreground p-4 border rounded-lg text-center">
-                      No abatement periods added. Click "Add Period" to create one.
+                      No abatement periods added. Click &quot;Add Period&quot; to create one.
                     </div>
                   )}
                   
@@ -4188,7 +4188,7 @@ function ProposalTab({ a, onSave }: { a: AnalysisMeta; onSave: (patch: AnalysisM
                     </DndContext>
                   ) : (
                     <div className="text-sm text-muted-foreground p-4 border rounded-lg text-center">
-                      No escalation periods added. Click "Add Period" to create one.
+                      No escalation periods added. Click &quot;Add Period&quot; to create one.
                     </div>
                   )}
                 </div>
@@ -4292,7 +4292,7 @@ function ProposalTab({ a, onSave }: { a: AnalysisMeta; onSave: (patch: AnalysisM
                     </DndContext>
                   ) : (
                     <div className="text-sm text-muted-foreground p-4 border rounded-lg text-center">
-                      No escalation periods added. Click "Add Period" to create one.
+                      No escalation periods added. Click &quot;Add Period&quot; to create one.
                     </div>
                   )}
                   <PercentageInput
