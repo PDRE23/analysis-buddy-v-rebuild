@@ -238,8 +238,10 @@ export function getProposalRecommendations(
     }
   }
 
-  // Check free rent
-  const freeRentMonths = analysis.rent_schedule[0]?.free_rent_months || 0;
+  // Check free rent (calculate from concessions/abatement)
+  const freeRentMonths = analysis.concessions?.abatement_type === "at_commencement"
+    ? (analysis.concessions?.abatement_free_rent_months || 0)
+    : (analysis.concessions?.abatement_periods?.reduce((sum, p) => sum + p.free_rent_months, 0) || 0);
   if (marketData.avgFreeRentMonths !== undefined) {
     if (freeRentMonths > marketData.avgFreeRentMonths * 1.5) {
       recommendations.push({

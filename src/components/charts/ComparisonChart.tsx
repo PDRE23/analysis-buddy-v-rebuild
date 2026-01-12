@@ -61,7 +61,10 @@ export function ComparisonChart({
       npv: npvValue,
       totalValue,
       tiAllowance: (proposal.meta.concessions?.ti_allowance_psf || 0) * proposal.meta.rsf,
-      freeRentMonths: proposal.meta.rent_schedule[0]?.free_rent_months || 0,
+      // Calculate free rent months from concessions/abatement
+      freeRentMonths: proposal.meta.concessions?.abatement_type === "at_commencement"
+        ? (proposal.meta.concessions?.abatement_free_rent_months || 0)
+        : (proposal.meta.concessions?.abatement_periods?.reduce((sum, p) => sum + p.free_rent_months, 0) || 0),
     };
   });
 

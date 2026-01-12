@@ -51,7 +51,10 @@ export function ConcessionsChart({
   
   // Calculate free rent value (first year base rent * free rent months / 12)
   const firstYearBaseRent = cashflow[0]?.base_rent || 0;
-  const freeRentMonths = analysis.rent_schedule[0]?.free_rent_months || 0;
+  // Calculate free rent months from concessions/abatement
+  const freeRentMonths = analysis.concessions?.abatement_type === "at_commencement"
+    ? (analysis.concessions?.abatement_free_rent_months || 0)
+    : (analysis.concessions?.abatement_periods?.reduce((sum, p) => sum + p.free_rent_months, 0) || 0);
   const freeRentValue = (firstYearBaseRent * freeRentMonths) / 12;
 
   const pieData = [

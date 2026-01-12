@@ -78,9 +78,13 @@ export function generateExecutiveSummary(data: ExecutiveSummaryData): {
           },
           { 
             label: "Free Rent", 
-            value: analysis.rent_schedule[0]?.free_rent_months 
-              ? `${analysis.rent_schedule[0].free_rent_months} months`
-              : "None"
+            // Calculate free rent months from concessions/abatement
+            value: (() => {
+              const freeRentMonths = analysis.concessions?.abatement_type === "at_commencement"
+                ? (analysis.concessions?.abatement_free_rent_months || 0)
+                : (analysis.concessions?.abatement_periods?.reduce((sum, p) => sum + p.free_rent_months, 0) || 0);
+              return freeRentMonths > 0 ? `${freeRentMonths} months` : "None";
+            })()
           },
         ],
       },

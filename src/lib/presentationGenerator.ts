@@ -193,7 +193,10 @@ export function generateComparisonSlides(
         npv: pm.npv,
         totalValue: pm.totalValue,
         tiAllowance: pm.proposal.meta.concessions.ti_allowance_psf || 0,
-        freeRentMonths: pm.proposal.meta.rent_schedule[0]?.free_rent_months || 0,
+        // Calculate free rent months from concessions/abatement
+        freeRentMonths: pm.proposal.meta.concessions?.abatement_type === "at_commencement"
+          ? (pm.proposal.meta.concessions?.abatement_free_rent_months || 0)
+          : (pm.proposal.meta.concessions?.abatement_periods?.reduce((sum, p) => sum + p.free_rent_months, 0) || 0),
       })),
     },
   });
