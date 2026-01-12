@@ -1472,7 +1472,7 @@ export default function LeaseAnalyzerApp({
         tenant_name: "",
         market: "",
         rsf: 0,
-        lease_type: undefined,
+        lease_type: "FS",
         rep_type: undefined,
         key_dates: {
           commencement: "",
