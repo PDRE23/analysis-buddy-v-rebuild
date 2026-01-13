@@ -7,9 +7,9 @@ import type { AnalysisData, CashflowLine } from "../pdf-export";
 import type { ExportConfig } from "../types";
 import type { Proposal } from "@/types";
 
-import { buildAnnualCashflow } from "../../../calculations/cashflow-engine";
-import { effectiveRentPSF } from "../../../calculations/metrics-engine";
-import { npv } from "../../../calculations/metrics-engine";
+import { buildAnnualCashflow } from "@/lib/calculations/cashflow-engine";
+import { effectiveRentPSF } from "@/lib/calculations/metrics-engine";
+import { npv } from "@/lib/calculations/metrics-engine";
 import { getFreeRentMonths } from "@/lib/utils";
 
 
