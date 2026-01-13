@@ -71,7 +71,7 @@ export function generateComparisonReport(data: ComparisonReportData): {
       rentSchedule: proposal.meta.rent_schedule.map((row, index) => ({
         period: `${index + 1}`,
         rent: row.rent_psf,
-        freeRent: 0, // Free rent is not stored in rent_schedule
+        freeRent: 0, // Free rent is not stored in rent_schedule, it's in concessions/abatement
       })),
       concessions: {
         tiAllowance: (proposal.meta.concessions?.ti_allowance_psf || 0) * proposal.meta.rsf,

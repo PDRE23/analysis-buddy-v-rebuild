@@ -18,6 +18,7 @@ import {
 } from "@/lib/marketData";
 import type { AnalysisMeta } from "../LeaseAnalyzerApp";
 import { TrendingUp, TrendingDown, Target } from "lucide-react";
+import { getFreeRentMonths } from "@/lib/utils";
 
 interface MarketComparisonProps {
   analysis: AnalysisMeta;
@@ -37,11 +38,7 @@ export function MarketComparison({ analysis, market }: MarketComparisonProps) {
   const firstYearRent = analysis.rent_schedule[0]?.rent_psf || 0;
   const tiAllowance = analysis.concessions?.ti_allowance_psf || 0;
   // Calculate free rent months from concessions
-  const freeRentMonths = analysis.concessions?.abatement_type === "at_commencement"
-    ? (analysis.concessions.abatement_free_rent_months || 0)
-    : analysis.concessions?.abatement_type === "custom" && analysis.concessions.abatement_periods
-    ? analysis.concessions.abatement_periods.reduce((sum, p) => sum + p.free_rent_months, 0)
-    : 0;
+  const freeRentMonths = getFreeRentMonths(analysis.concessions);
 
   const competitiveness = marketMetrics
     ? calculateCompetitivenessScore(firstYearRent, tiAllowance, freeRentMonths, marketMetrics)
