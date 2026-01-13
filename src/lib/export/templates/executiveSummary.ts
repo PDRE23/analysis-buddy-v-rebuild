@@ -5,6 +5,7 @@
 
 import type { AnalysisData, CashflowLine } from "../pdf-export";
 import type { ExportConfig } from "../types";
+import { getFreeRentMonths } from "@/lib/utils";
 
 export interface ExecutiveSummaryData {
   analysis: AnalysisData;
@@ -78,9 +79,10 @@ export function generateExecutiveSummary(data: ExecutiveSummaryData): {
           },
           { 
             label: "Free Rent", 
-            value: analysis.rent_schedule[0]?.free_rent_months 
-              ? `${analysis.rent_schedule[0].free_rent_months} months`
-              : "None"
+            value: (() => {
+              const months = getFreeRentMonths(analysis.concessions);
+              return months ? `${months} months` : "None";
+            })()
           },
         ],
       },

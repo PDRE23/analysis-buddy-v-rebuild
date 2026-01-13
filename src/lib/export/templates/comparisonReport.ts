@@ -10,6 +10,7 @@ import type { Proposal } from "@/types";
 import { buildAnnualCashflow } from "../../../calculations/cashflow-engine";
 import { effectiveRentPSF } from "../../../calculations/metrics-engine";
 import { npv } from "../../../calculations/metrics-engine";
+import { getFreeRentMonths } from "@/lib/utils";
 
 
 export interface ComparisonReportData {
@@ -70,12 +71,12 @@ export function generateComparisonReport(data: ComparisonReportData): {
       rentSchedule: proposal.meta.rent_schedule.map((row, index) => ({
         period: `${index + 1}`,
         rent: row.rent_psf,
-        freeRent: row.free_rent_months || 0,
+        freeRent: 0, // Free rent is not stored in rent_schedule
       })),
       concessions: {
         tiAllowance: (proposal.meta.concessions?.ti_allowance_psf || 0) * proposal.meta.rsf,
         movingAllowance: proposal.meta.concessions?.moving_allowance || 0,
-        freeRentMonths: proposal.meta.rent_schedule[0]?.free_rent_months || 0,
+        freeRentMonths: getFreeRentMonths(proposal.meta.concessions),
       },
     };
   });

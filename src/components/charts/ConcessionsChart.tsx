@@ -24,6 +24,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import type { AnalysisMeta } from "../LeaseAnalyzerApp";
 import type { AnnualLine } from "../LeaseAnalyzerApp";
+import { getFreeRentMonths } from "@/lib/utils";
 
 interface ConcessionsChartProps {
   analysis: AnalysisMeta;
@@ -51,7 +52,7 @@ export function ConcessionsChart({
   
   // Calculate free rent value (first year base rent * free rent months / 12)
   const firstYearBaseRent = cashflow[0]?.base_rent || 0;
-  const freeRentMonths = analysis.rent_schedule[0]?.free_rent_months || 0;
+  const freeRentMonths = getFreeRentMonths(analysis.concessions);
   const freeRentValue = (firstYearBaseRent * freeRentMonths) / 12;
 
   const pieData = [

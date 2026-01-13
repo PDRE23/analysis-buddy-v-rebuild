@@ -6,6 +6,7 @@
 import type { Deal } from "./types/deal";
 import type { AnalysisMeta } from "../components/LeaseAnalyzerApp";
 import { daysSinceUpdate } from "./types/deal";
+import { getFreeRentMonths } from "./utils";
 
 export type DealHealthStatus = "healthy" | "needs_attention" | "at_risk";
 
@@ -239,7 +240,7 @@ export function getProposalRecommendations(
   }
 
   // Check free rent
-  const freeRentMonths = analysis.rent_schedule[0]?.free_rent_months || 0;
+  const freeRentMonths = getFreeRentMonths(analysis.concessions);
   if (marketData.avgFreeRentMonths !== undefined) {
     if (freeRentMonths > marketData.avgFreeRentMonths * 1.5) {
       recommendations.push({
@@ -337,7 +338,7 @@ export function detectMissingInformation(analysis: AnalysisMeta): MissingInforma
   }
 
   // Info-level suggestions
-  if (!analysis.rent_schedule[0]?.free_rent_months) {
+  if (!getFreeRentMonths(analysis.concessions)) {
     alerts.push({
       field: "free_rent",
       severity: "info",

@@ -30,6 +30,7 @@ import type { Proposal, AnalysisMeta } from "@/types";
 import { buildAnnualCashflow } from "@/lib/calculations/cashflow-engine";
 import { effectiveRentPSF } from "@/lib/calculations/metrics-engine";
 import { npv } from "@/lib/calculations/metrics-engine";
+import { getFreeRentMonths } from "@/lib/utils";
 
 interface ComparisonChartProps {
   proposals: Proposal[];
@@ -65,7 +66,7 @@ export function ComparisonChart({
       npv: npvValue,
       totalValue,
       tiAllowance: (proposal.meta.concessions?.ti_allowance_psf || 0) * proposal.meta.rsf,
-      freeRentMonths: proposal.meta.rent_schedule[0]?.free_rent_months || 0,
+      freeRentMonths: getFreeRentMonths(proposal.meta.concessions),
     };
   });
 

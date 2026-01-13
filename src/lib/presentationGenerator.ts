@@ -8,6 +8,7 @@ import type { AnalysisMeta, Proposal, AnnualLine } from "@/types";
 import { buildAnnualCashflow } from "./calculations/cashflow-engine";
 import { effectiveRentPSF } from "./calculations/metrics-engine";
 import { npv } from "./calculations/metrics-engine";
+import { getFreeRentMonths } from "./utils";
 
 export interface PresentationSlide {
   id: string;
@@ -195,7 +196,7 @@ export function generateComparisonSlides(
         npv: pm.npv,
         totalValue: pm.totalValue,
         tiAllowance: pm.proposal.meta.concessions.ti_allowance_psf || 0,
-        freeRentMonths: pm.proposal.meta.rent_schedule[0]?.free_rent_months || 0,
+        freeRentMonths: getFreeRentMonths(pm.proposal.meta.concessions),
       })),
     },
   });

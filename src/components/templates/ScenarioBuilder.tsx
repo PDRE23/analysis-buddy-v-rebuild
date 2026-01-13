@@ -27,6 +27,7 @@ import type { AnalysisMeta } from "@/types";
 import { buildAnnualCashflow } from "@/lib/calculations/cashflow-engine";
 import { effectiveRentPSF } from "@/lib/calculations/metrics-engine";
 import { npv } from "@/lib/calculations/metrics-engine";
+import { getFreeRentMonths } from "@/lib/utils";
 
 interface ScenarioBuilderProps {
   baseAnalysis: AnalysisMeta;
@@ -154,13 +155,20 @@ export function ScenarioBuilder({
               <Label>Free Rent (Months)</Label>
               <Input
                 type="number"
-                value={modifications.rent_schedule?.[0]?.free_rent_months || baseAnalysis.rent_schedule[0]?.free_rent_months || 0}
-                onChange={(e) => {
-                  const newSchedule = [...(baseAnalysis.rent_schedule || [])];
-                  if (newSchedule.length > 0) {
-                    newSchedule[0] = { ...newSchedule[0], free_rent_months: Number(e.target.value) };
+                value={(() => {
+                  if (modifications.concessions?.abatement_free_rent_months !== undefined) {
+                    return modifications.concessions.abatement_free_rent_months;
                   }
-                  handleModification("rent_schedule", newSchedule);
+                  return getFreeRentMonths(baseAnalysis.concessions);
+                })()}
+                onChange={(e) => {
+                  const newMonths = Number(e.target.value) || 0;
+                  handleModification("concessions", {
+                    ...baseAnalysis.concessions,
+                    ...modifications.concessions,
+                    abatement_type: "at_commencement",
+                    abatement_free_rent_months: newMonths,
+                  });
                 }}
                 placeholder="0"
               />
