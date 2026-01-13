@@ -363,7 +363,10 @@ export function detectTimelineConflicts(analysis: AnalysisMeta): TimelineWarning
   const warnings: TimelineWarning[] = [];
   
   const commencement = new Date(analysis.key_dates.commencement);
-  const rentStart = new Date(analysis.key_dates.rent_start);
+  // Use rent_start if provided, otherwise default to commencement
+  const rentStart = analysis.key_dates.rent_start 
+    ? new Date(analysis.key_dates.rent_start)
+    : commencement;
   const expiration = new Date(analysis.key_dates.expiration);
 
   // Check if rent start is before commencement
