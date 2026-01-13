@@ -1,7 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  output: "standalone",
+  // Removed output: "standalone" - Vercel handles this automatically
   experimental: {
     optimizePackageImports: [
       "lucide-react",

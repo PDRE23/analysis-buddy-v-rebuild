@@ -1,5 +1,8 @@
 import { NextResponse } from 'next/server';
 
+// Optional: Use Edge Runtime for faster response times (Vercel optimized)
+// export const runtime = 'edge';
+
 export async function GET() {
   const health: {
     status: string;
