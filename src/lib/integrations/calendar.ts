@@ -148,7 +148,10 @@ export function createEventForAnalysis(
       date = new Date(analysis.key_dates.commencement);
       break;
     case "rent-start":
-      date = new Date(analysis.key_dates.rent_start);
+      // rent_start is optional, use commencement as fallback
+      date = analysis.key_dates.rent_start 
+        ? new Date(analysis.key_dates.rent_start)
+        : new Date(analysis.key_dates.commencement);
       break;
     case "expiration":
       date = new Date(analysis.key_dates.expiration);
