@@ -189,9 +189,10 @@ export function generateSmartRemindersFromAnalyses(analyses: AnalysisMeta[]): Re
           title: `Rent start date: ${analysis.tenant_name}`,
           description: `Rent start is in ${Math.round(daysUntilRentStart)} days`,
           dueDate: analysis.key_dates.rent_start,
-        completed: false,
-        createdAt: new Date().toISOString(),
-      });
+          completed: false,
+          createdAt: new Date().toISOString(),
+        });
+      }
     }
   });
 
