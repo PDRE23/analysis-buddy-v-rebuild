@@ -56,8 +56,7 @@
   },
   "overrides": {
     "rimraf": "^5.0.0",
-    "glob": "^10.3.10",
-    "inflight": "npm:@zkochan/inflight@^0.1.0"
+    "glob": "^10.3.10"
   },
   "engines": {
     "node": "22.x"
