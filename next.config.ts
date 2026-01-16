@@ -9,7 +9,7 @@ const nextConfig: NextConfig = {
       "@radix-ui/react-popover",
       "@radix-ui/react-dropdown-menu",
     ],
-    esmExternals: "loose",
+    // Removed esmExternals: "loose" - Next.js recommends not modifying this
   },
   modularizeImports: {
     "lucide-react": {
