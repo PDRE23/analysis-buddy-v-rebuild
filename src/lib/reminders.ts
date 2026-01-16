@@ -176,18 +176,19 @@ export function generateSmartRemindersFromAnalyses(analyses: AnalysisMeta[]): Re
       });
     }
 
-    // Reminder: Rent start date
-    const rentStart = new Date(analysis.key_dates.rent_start);
-    const daysUntilRentStart = (rentStart.getTime() - now.getTime()) / (1000 * 60 * 60 * 24);
-    
-    if (daysUntilRentStart >= 0 && daysUntilRentStart <= 14) {
-      reminders.push({
-        id: `auto-${analysis.id}-rent-start`,
-        type: "custom",
-        analysisId: analysis.id,
-        title: `Rent start date: ${analysis.tenant_name}`,
-        description: `Rent start is in ${Math.round(daysUntilRentStart)} days`,
-        dueDate: analysis.key_dates.rent_start,
+    // Reminder: Rent start date (use commencement as fallback if rent_start not set)
+    if (analysis.key_dates.rent_start) {
+      const rentStart = new Date(analysis.key_dates.rent_start);
+      const daysUntilRentStart = (rentStart.getTime() - now.getTime()) / (1000 * 60 * 60 * 24);
+      
+      if (daysUntilRentStart >= 0 && daysUntilRentStart <= 14) {
+        reminders.push({
+          id: `auto-${analysis.id}-rent-start`,
+          type: "custom",
+          analysisId: analysis.id,
+          title: `Rent start date: ${analysis.tenant_name}`,
+          description: `Rent start is in ${Math.round(daysUntilRentStart)} days`,
+          dueDate: analysis.key_dates.rent_start,
         completed: false,
         createdAt: new Date().toISOString(),
       });
