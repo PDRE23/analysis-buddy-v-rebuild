@@ -53,6 +53,7 @@ import {
 import { NERAnalysisView } from "@/components/analysis/NERAnalysisView";
 import { DealTermsSummaryCard } from "@/components/analysis/DealTermsSummaryCard";
 import { DetailedCashflowTable } from "@/components/analysis/DetailedCashflowTable";
+import { ScenarioComparisonTable } from "@/components/analysis/ScenarioComparisonTable";
 import type { NERAnalysis } from "@/lib/types/ner";
 import { PresentationMode } from "@/components/presentation/PresentationMode";
 import { 
@@ -5106,6 +5107,9 @@ const AnalysisTab = React.memo(function AnalysisTab({ lines, meta }: { lines: An
           </div>
         </CardContent>
       </Card>
+
+      {/* Scenario Comparison Table */}
+      <ScenarioComparisonTable baseMeta={meta} />
 
       {/* Detailed Cash Flow Table */}
       <DetailedCashflowTable lines={lines} meta={meta} />
