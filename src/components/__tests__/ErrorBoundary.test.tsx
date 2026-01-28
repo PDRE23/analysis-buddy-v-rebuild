@@ -85,7 +85,7 @@ describe('ErrorBoundary', () => {
 
   it('should show error details in development mode', () => {
     const originalEnv = process.env.NODE_ENV;
-    process.env.NODE_ENV = 'development';
+    (process.env as any).NODE_ENV = 'development';
 
     render(
       <ErrorBoundary>
@@ -96,12 +96,12 @@ describe('ErrorBoundary', () => {
     const details = screen.getByText('Error Details (Development)');
     expect(details).toBeInTheDocument();
 
-    process.env.NODE_ENV = originalEnv;
+    (process.env as any).NODE_ENV = originalEnv;
   });
 
   it('should hide error details in production mode', () => {
     const originalEnv = process.env.NODE_ENV;
-    process.env.NODE_ENV = 'production';
+    (process.env as any).NODE_ENV = 'production';
 
     render(
       <ErrorBoundary>
@@ -112,7 +112,7 @@ describe('ErrorBoundary', () => {
     const details = screen.queryByText('Error Details');
     expect(details).not.toBeInTheDocument();
 
-    process.env.NODE_ENV = originalEnv;
+    (process.env as any).NODE_ENV = originalEnv;
   });
 
   it('should show Try Again button when error occurs', () => {
@@ -128,8 +128,14 @@ describe('ErrorBoundary', () => {
 
   it('should navigate to home when Go Home is clicked', () => {
     // Mock window.location.href
-    delete (window as unknown).location;
-    window.location = { href: '' } as Location;
+    const originalLocation = window.location;
+    const mockLocation = { href: '' } as Location;
+    
+    Object.defineProperty(window, 'location', {
+      value: mockLocation,
+      writable: true,
+      configurable: true,
+    });
 
     render(
       <ErrorBoundary>
@@ -139,6 +145,13 @@ describe('ErrorBoundary', () => {
 
     fireEvent.click(screen.getByText('Go Home'));
 
-    expect(window.location.href).toBe('http://localhost/');
+    expect(mockLocation.href).toBe('http://localhost/');
+
+    // Restore original location
+    Object.defineProperty(window, 'location', {
+      value: originalLocation,
+      writable: true,
+      configurable: true,
+    });
   });
 });

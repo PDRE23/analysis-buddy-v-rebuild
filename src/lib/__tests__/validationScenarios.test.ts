@@ -32,13 +32,14 @@ describe('Validation Scenarios', () => {
         period_end: '2026-12-31',
         rent_psf: 30,
         escalation_percentage: 0.03,
-        free_rent_months: 2,
-        abatement_applies_to: 'base_only',
       },
     ],
     concessions: {
       ti_allowance_psf: 50,
       moving_allowance: 100000,
+      abatement_type: 'at_commencement',
+      abatement_free_rent_months: 2,
+      abatement_applies_to: 'base_only',
     },
     parking: {
       monthly_rate_per_stall: 150,
@@ -68,7 +69,7 @@ describe('Validation Scenarios', () => {
 
   describe('NNN Lease with Missing Expense Stop', () => {
     it('should show warning for missing expense stop in NNN lease', () => {
-      const analysis = { ...baseAnalysis, lease_type: 'NNN', expense_stop_psf: undefined };
+      const analysis: AnalysisMeta = { ...baseAnalysis, lease_type: 'NNN' as const };
       const errors = validateAnalysisMeta(analysis);
       
       // NNN leases should have expense stop, but it's not strictly required
@@ -143,20 +144,16 @@ describe('Validation Scenarios', () => {
     it('should show error for negative free rent months', () => {
       const analysis = {
         ...baseAnalysis,
-        rent_schedule: [
-          {
-            period_start: '2024-01-01',
-            period_end: '2026-12-31',
-            rent_psf: 30,
-            escalation_percentage: 0.03,
-            free_rent_months: -1, // Negative
-            abatement_applies_to: 'base_only',
-          },
-        ],
+        concessions: {
+          ...baseAnalysis.concessions,
+          abatement_type: 'at_commencement' as const,
+          abatement_free_rent_months: -1, // Negative
+          abatement_applies_to: 'base_only' as const,
+        },
       };
       const errors = validateAnalysisMeta(analysis);
       
-      const freeRentError = errors.find(e => e.field.includes('free_rent_months'));
+      const freeRentError = errors.find(e => e.field.includes('free_rent_months') || e.field.includes('abatement'));
       expect(freeRentError).toBeDefined();
       expect(freeRentError?.severity).toBe('error');
     });
@@ -243,7 +240,7 @@ describe('Validation Scenarios', () => {
         rsf: 50, // Warning - very small RSF
         cashflow_settings: {
           discount_rate: 1.5, // Warning - very high discount rate
-          granularity: 'annual',
+          granularity: 'annual' as const,
         },
       };
       
