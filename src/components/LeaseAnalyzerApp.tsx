@@ -28,7 +28,7 @@ import { ErrorBoundary, useErrorHandler } from "@/components/ErrorBoundary";
 import { AsyncErrorBoundary } from "@/components/AsyncErrorBoundary";
 import { ClientOnly } from "@/components/ClientOnly";
 import { ExportDialog } from "@/components/export/ExportDialog";
-import { calculateLeaseTermYears } from "@/lib/leaseTermCalculations";
+import { analyzeLease } from "@/lib/analysis-engine";
 import { Textarea } from "@/components/ui/textarea";
 import { File, X } from "lucide-react";
 import { DuplicateDialog, applyDuplicateOptions } from "@/components/ui/duplicate-dialog";
@@ -2423,10 +2423,11 @@ function Workspace({
   allProposals?: Proposal[];
 }) {
   const meta = proposal.meta;
-  const lines = useMemo(() => buildAnnualCashflow(meta), [meta]);
-  const years = useMemo(() => calculateLeaseTermYears(meta), [meta]);
-  const eff = useMemo(() => effectiveRentPSF(lines, meta.rsf, years), [lines, meta.rsf, years]);
-  const pvV = useMemo(() => npv(lines, meta.cashflow_settings.discount_rate), [lines, meta]);
+  const analysisResult = useMemo(() => analyzeLease(meta), [meta]);
+  const lines = analysisResult.cashflow;
+  const years = analysisResult.years;
+  const eff = analysisResult.metrics.effectiveRentPSF;
+  const pvV = analysisResult.metrics.npv;
 
   // Export dialog state
   const [showExportDialog, setShowExportDialog] = useState(false);
