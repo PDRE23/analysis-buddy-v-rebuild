@@ -21,6 +21,7 @@ const nextConfig: NextConfig = {
       preventFullImport: true,
     },
   },
+  turbopack: {},
   // Add security headers including CSP
   async headers() {
     return [
