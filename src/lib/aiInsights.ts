@@ -6,7 +6,7 @@
 import type { Deal } from "./types/deal";
 import type { AnalysisMeta } from "../components/LeaseAnalyzerApp";
 import { daysSinceUpdate } from "./types/deal";
-import { getFreeRentMonths } from "./utils";
+import { getDerivedRentStartDate, getFreeRentMonths } from "./utils";
 
 export type DealHealthStatus = "healthy" | "needs_attention" | "at_risk";
 
@@ -363,10 +363,8 @@ export function detectTimelineConflicts(analysis: AnalysisMeta): TimelineWarning
   const warnings: TimelineWarning[] = [];
   
   const commencement = new Date(analysis.key_dates.commencement);
-  // Use rent_start if provided, otherwise default to commencement
-  const rentStart = analysis.key_dates.rent_start 
-    ? new Date(analysis.key_dates.rent_start)
-    : commencement;
+  const derivedRentStart = getDerivedRentStartDate(analysis);
+  const rentStart = derivedRentStart ? new Date(derivedRentStart) : commencement;
   const expiration = new Date(analysis.key_dates.expiration);
 
   // Check if rent start is before commencement

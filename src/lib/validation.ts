@@ -3,6 +3,7 @@
  */
 
 import type { AnalysisMeta } from "@/components/LeaseAnalyzerApp";
+import { getDerivedRentStartDate } from "./utils";
 
 export interface ValidationError {
   field: string;
@@ -448,6 +449,8 @@ export const checkBlankSections = (meta: unknown): ConfirmationRequest[] => {
  */
 export const smartValidateAnalysisMeta = (meta: unknown): ValidationResult => {
   const errors: ValidationError[] = [];
+  const analysis = meta as AnalysisMeta;
+  const derivedRentStart = getDerivedRentStartDate(analysis);
   
   // Only validate truly required fields
   if (!(meta as any)?.name?.trim()) {
@@ -482,31 +485,35 @@ export const smartValidateAnalysisMeta = (meta: unknown): ValidationResult => {
   errors.push(...rsfErrors);
 
   // Validate key dates
-  if ((meta as any)?.key_dates) {
-    if ((meta as any)?.key_dates?.commencement) {
-      errors.push(...validateDate((meta as any)?.key_dates?.commencement, 'Commencement Date'));
+  if (analysis?.key_dates) {
+    if (analysis.key_dates.commencement) {
+      errors.push(...validateDate(analysis.key_dates.commencement, 'Commencement Date'));
     }
-    if ((meta as any)?.key_dates?.rent_start) {
-      errors.push(...validateDate((meta as any)?.key_dates?.rent_start, 'Rent Start Date'));
+    if (derivedRentStart) {
+      errors.push(...validateDate(derivedRentStart, 'Rent Start Date'));
     }
-    if ((meta as any)?.key_dates?.expiration) {
-      errors.push(...validateDate((meta as any)?.key_dates?.expiration, 'Expiration Date'));
+    if (analysis.key_dates.expiration) {
+      errors.push(...validateDate(analysis.key_dates.expiration, 'Expiration Date'));
     }
 
     // Validate date relationships if all dates are present
-    if ((meta as any)?.key_dates?.commencement && (meta as any)?.key_dates?.rent_start) {
-      errors.push(...validateDateRange(
-        (meta as any)?.key_dates?.commencement,
-        (meta as any)?.key_dates?.rent_start,
-        'Commencement Date',
-        'Rent Start Date'
-      ));
+    if (analysis.key_dates.commencement && derivedRentStart) {
+      const commencement = new Date(analysis.key_dates.commencement);
+      const rentStart = new Date(derivedRentStart);
+      if (commencement > rentStart) {
+        errors.push({
+          field: 'rent_start',
+          message: 'Rent Start Date must be on or after Commencement Date',
+          type: 'date',
+          severity: 'error'
+        });
+      }
     }
 
-    if ((meta as any)?.key_dates?.rent_start && (meta as any)?.key_dates?.expiration) {
+    if (derivedRentStart && analysis.key_dates.expiration) {
       errors.push(...validateDateRange(
-        (meta as any)?.key_dates?.rent_start,
-        (meta as any)?.key_dates?.expiration,
+        derivedRentStart,
+        analysis.key_dates.expiration,
         'Rent Start Date',
         'Expiration Date'
       ));

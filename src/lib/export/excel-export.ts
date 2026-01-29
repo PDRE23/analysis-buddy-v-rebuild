@@ -3,8 +3,10 @@
  */
 
 import ExcelJS from 'exceljs';
+import type { AnalysisMeta } from '@/types/analysis';
 import type { ExportConfig } from './types';
 import type { AnalysisData, CashflowLine, ExportData } from './pdf-export';
+import { getDerivedRentStartDate } from '../utils';
 
 const fmtMoney = (v: number | undefined): number => v ?? 0;
 const fmtRate = (v: number | undefined): number => v ?? 0;
@@ -80,6 +82,7 @@ function addSummarySheet(workbook: ExcelJS.Workbook, data: ExportData): void {
   sheet.mergeCells(`A${summaryHeaderRow.number}:B${summaryHeaderRow.number}`);
   
   // Summary data
+  const derivedRentStart = getDerivedRentStartDate(data.analysis as AnalysisMeta);
   const summaryData = [
     ['Tenant', data.analysis.tenant_name],
     ['Market', data.analysis.market || 'N/A'],
@@ -87,7 +90,7 @@ function addSummarySheet(workbook: ExcelJS.Workbook, data: ExportData): void {
     ['Lease Type', data.analysis.lease_type],
     ['Status', data.analysis.status],
     ['Commencement', new Date(data.analysis.key_dates.commencement).toLocaleDateString()],
-    ['Rent Start', new Date(data.analysis.key_dates.rent_start).toLocaleDateString()],
+    ['Rent Start', derivedRentStart ? new Date(derivedRentStart).toLocaleDateString() : 'N/A'],
     ['Expiration', new Date(data.analysis.key_dates.expiration).toLocaleDateString()],
     ['Term', `${data.metrics.totalYears} years`],
   ];

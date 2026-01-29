@@ -6,6 +6,7 @@
 import type { Deal } from "./types/deal";
 import type { AnalysisMeta } from "../components/LeaseAnalyzerApp";
 import { daysSinceUpdate } from "./types/deal";
+import { getDerivedRentStartDate } from "./utils";
 
 export type ReminderType = 
   | "deal_update"
@@ -176,9 +177,10 @@ export function generateSmartRemindersFromAnalyses(analyses: AnalysisMeta[]): Re
       });
     }
 
-    // Reminder: Rent start date (use commencement as fallback if rent_start not set)
-    if (analysis.key_dates.rent_start) {
-      const rentStart = new Date(analysis.key_dates.rent_start);
+    // Reminder: Rent start date (derived from commencement + free rent months)
+    const derivedRentStart = getDerivedRentStartDate(analysis);
+    if (derivedRentStart) {
+      const rentStart = new Date(derivedRentStart);
       const daysUntilRentStart = (rentStart.getTime() - now.getTime()) / (1000 * 60 * 60 * 24);
       
       if (daysUntilRentStart >= 0 && daysUntilRentStart <= 14) {
@@ -188,7 +190,7 @@ export function generateSmartRemindersFromAnalyses(analyses: AnalysisMeta[]): Re
           analysisId: analysis.id,
           title: `Rent start date: ${analysis.tenant_name}`,
           description: `Rent start is in ${Math.round(daysUntilRentStart)} days`,
-          dueDate: analysis.key_dates.rent_start,
+          dueDate: derivedRentStart,
           completed: false,
           createdAt: new Date().toISOString(),
         });

@@ -6,6 +6,7 @@
 import type { Deal } from "../types/deal";
 import type { AnalysisMeta } from "../../components/LeaseAnalyzerApp";
 import type { Reminder } from "../reminders";
+import { getDerivedRentStartDate } from "../utils";
 
 export type CalendarProvider = "google" | "outlook" | "ical";
 
@@ -148,11 +149,12 @@ export function createEventForAnalysis(
       date = new Date(analysis.key_dates.commencement);
       break;
     case "rent-start":
-      // rent_start is optional, use commencement as fallback
-      if (analysis.key_dates.rent_start) {
-        date = new Date(analysis.key_dates.rent_start);
-      } else {
-        date = new Date(analysis.key_dates.commencement);
+      // rent_start is derived from commencement + free rent months
+      if (analysis.key_dates.commencement) {
+        const derivedRentStart = getDerivedRentStartDate(analysis);
+        date = derivedRentStart
+          ? new Date(derivedRentStart)
+          : new Date(analysis.key_dates.commencement);
       }
       break;
     case "expiration":

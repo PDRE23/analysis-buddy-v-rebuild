@@ -73,7 +73,7 @@ export function getAllSectionStatuses(data: AnalysisMeta, errors: ValidationErro
     },
     {
       name: 'Key Dates',
-      fields: ['key_dates.commencement', 'key_dates.rent_start', 'key_dates.expiration']
+      fields: ['key_dates.commencement', 'key_dates.expiration']
     },
     {
       name: 'Lease Terms',

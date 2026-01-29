@@ -3736,6 +3736,28 @@ function ProposalTab({ a, onSave }: { a: AnalysisMeta; onSave: (patch: AnalysisM
               return null;
             })()}
           </div>
+          {(() => {
+            const abatementMonths = getAbatementMonths(local.concessions);
+            if (!local.key_dates.commencement || abatementMonths <= 0) return null;
+            const commencementDate = new Date(local.key_dates.commencement);
+            if (isNaN(commencementDate.getTime())) return null;
+            const rentStartDate = new Date(commencementDate);
+            rentStartDate.setMonth(rentStartDate.getMonth() + abatementMonths);
+            return (
+              <div>
+                <Label>Rent Commencement (Calculated)</Label>
+                <Input
+                  type="date"
+                  value={rentStartDate.toISOString().split("T")[0]}
+                  readOnly
+                  className="bg-muted cursor-not-allowed"
+                />
+                <p className="text-xs text-muted-foreground mt-1">
+                  Based on {abatementMonths} month{abatementMonths !== 1 ? "s" : ""} of free rent
+                </p>
+              </div>
+            );
+          })()}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
             <Select
               label="Lease Type"

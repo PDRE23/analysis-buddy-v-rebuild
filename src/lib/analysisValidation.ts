@@ -3,6 +3,7 @@
  */
 
 import { AnalysisMeta } from '@/components/LeaseAnalyzerApp';
+import { getDerivedRentStartDate } from './utils';
 import { 
   ValidationError, 
   ValidationResult,
@@ -85,20 +86,29 @@ export const validateAnalysisMeta = (meta: AnalysisMeta): ValidationError[] => {
   }
 
   // Validate key dates
+  const derivedRentStart = getDerivedRentStartDate(meta);
   errors.push(...validateDate(meta.key_dates.commencement, 'Commencement Date'));
-  errors.push(...validateDate(meta.key_dates.rent_start, 'Rent Start Date'));
+  if (derivedRentStart) {
+    errors.push(...validateDate(derivedRentStart, 'Rent Start Date'));
+  }
   errors.push(...validateDate(meta.key_dates.expiration, 'Expiration Date'));
 
   // Validate date relationships
-  errors.push(...validateDateRange(
-    meta.key_dates.commencement,
-    meta.key_dates.rent_start,
-    'Commencement Date',
-    'rent_start'
-  ));
+  if (meta.key_dates.commencement && derivedRentStart) {
+    const commencement = new Date(meta.key_dates.commencement);
+    const rentStart = new Date(derivedRentStart);
+    if (commencement > rentStart) {
+      errors.push({
+        field: 'rent_start',
+        message: 'Rent Start Date must be on or after Commencement Date',
+        type: 'date',
+        severity: 'error'
+      });
+    }
+  }
 
   errors.push(...validateDateRange(
-    meta.key_dates.rent_start,
+    derivedRentStart,
     meta.key_dates.expiration,
     'Rent Start Date',
     'expiration'
@@ -234,9 +244,9 @@ export const validateAnalysisMeta = (meta: AnalysisMeta): ValidationError[] => {
     if (!meta.base_year) {
       errors.push({
         field: 'base_year',
-        message: 'Base year is required for FS leases',
-        type: 'required',
-        severity: 'error'
+        message: 'Base year is optional for FS leases',
+        type: 'business',
+        severity: 'warning'
       });
     } else {
       const commencementYear = new Date(meta.key_dates.commencement).getFullYear();

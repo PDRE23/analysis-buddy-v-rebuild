@@ -3,8 +3,10 @@
  * Wallet-sized summary card
  */
 
+import type { AnalysisMeta } from "@/types/analysis";
 import type { AnalysisData, CashflowLine } from "../pdf-export";
 import type { ExportConfig } from "../types";
+import { getDerivedRentStartDate } from "../../utils";
 
 export interface QuickReferenceData {
   analysis: AnalysisData;
@@ -38,6 +40,7 @@ export function generateQuickReference(data: QuickReferenceData): {
   };
 } {
   const { analysis, cashflow, metrics, contactInfo } = data;
+  const derivedRentStart = getDerivedRentStartDate(analysis as AnalysisMeta);
   
   const year1Total = cashflow[0]?.subtotal || 0;
   const totalValue = cashflow.reduce((sum, line) => sum + line.net_cash_flow, 0);
@@ -55,7 +58,7 @@ export function generateQuickReference(data: QuickReferenceData): {
     ],
     keyDates: [
       { label: "Commencement", value: new Date(analysis.key_dates.commencement).toLocaleDateString() },
-      { label: "Rent Start", value: new Date(analysis.key_dates.rent_start).toLocaleDateString() },
+      { label: "Rent Start", value: derivedRentStart ? new Date(derivedRentStart).toLocaleDateString() : "N/A" },
       { label: "Expiration", value: new Date(analysis.key_dates.expiration).toLocaleDateString() },
     ],
     contactInfo,

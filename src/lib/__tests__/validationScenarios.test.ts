@@ -5,6 +5,7 @@
 import { AnalysisMeta } from '@/components/LeaseAnalyzerApp';
 import { validateAnalysisMeta, getSmartValidationSummary } from '../analysisValidation';
 import { getAllSectionStatuses, getOverallCompletionStatus } from '../sectionCompletion';
+import { getDerivedRentStartDate } from '../utils';
 
 describe('Validation Scenarios', () => {
   const baseAnalysis: AnalysisMeta = {
@@ -57,13 +58,12 @@ describe('Validation Scenarios', () => {
   };
 
   describe('FS Lease with Missing Base Year', () => {
-    it('should show error for missing base year in FS lease', () => {
+    it('should not require base year for FS lease', () => {
       const analysis = { ...baseAnalysis, base_year: undefined };
       const errors = validateAnalysisMeta(analysis);
       
       const baseYearError = errors.find(e => e.field === 'base_year');
-      expect(baseYearError).toBeDefined();
-      expect(baseYearError?.severity).toBe('error');
+      expect(baseYearError).toBeUndefined();
     });
   });
 
@@ -80,29 +80,34 @@ describe('Validation Scenarios', () => {
   });
 
   describe('Invalid Date Sequences', () => {
-    it('should show error for rent start before commencement', () => {
+    it('should not require rent start when omitted', () => {
       const analysis = {
         ...baseAnalysis,
         key_dates: {
           commencement: '2024-02-01',
-          rent_start: '2024-01-01', // Before commencement
+          rent_start: undefined,
           expiration: '2029-12-31',
         },
       };
       const errors = validateAnalysisMeta(analysis);
       
       const dateError = errors.find(e => e.field === 'rent_start');
-      expect(dateError).toBeDefined();
-      expect(dateError?.severity).toBe('error');
+      expect(dateError).toBeUndefined();
     });
 
-    it('should show error for expiration before rent start', () => {
+    it('should show error for expiration before derived rent start', () => {
       const analysis = {
         ...baseAnalysis,
+        concessions: {
+          ...baseAnalysis.concessions,
+          abatement_type: 'at_commencement' as const,
+          abatement_free_rent_months: 3,
+          abatement_applies_to: 'base_only' as const,
+        },
         key_dates: {
           commencement: '2024-01-01',
-          rent_start: '2024-02-01',
-          expiration: '2024-01-15', // Before rent start
+          rent_start: undefined,
+          expiration: '2024-02-01', // Before derived rent start (commencement + 3 months)
         },
       };
       const errors = validateAnalysisMeta(analysis);
@@ -110,6 +115,71 @@ describe('Validation Scenarios', () => {
       const dateError = errors.find(e => e.field === 'expiration');
       expect(dateError).toBeDefined();
       expect(dateError?.severity).toBe('error');
+    });
+  });
+
+  describe('Derived Rent Start', () => {
+    it('shifts by abatement_free_rent_months for at_commencement', () => {
+      const analysis = {
+        ...baseAnalysis,
+        concessions: {
+          ...baseAnalysis.concessions,
+          abatement_type: 'at_commencement' as const,
+          abatement_free_rent_months: 2,
+        },
+        key_dates: {
+          ...baseAnalysis.key_dates,
+          rent_start: undefined,
+        },
+      };
+      expect(getDerivedRentStartDate(analysis)).toBe('2024-03-01');
+    });
+
+    it('shifts by sum of custom abatement periods', () => {
+      const analysis = {
+        ...baseAnalysis,
+        concessions: {
+          ...baseAnalysis.concessions,
+          abatement_type: 'custom' as const,
+          abatement_periods: [
+            { period_start: '2024-01-01', period_end: '2024-01-31', free_rent_months: 1, abatement_applies_to: 'base_only' as const },
+            { period_start: '2024-02-01', period_end: '2024-02-29', free_rent_months: 2, abatement_applies_to: 'base_only' as const },
+          ],
+        },
+        key_dates: {
+          ...baseAnalysis.key_dates,
+          rent_start: undefined,
+        },
+      };
+      expect(getDerivedRentStartDate(analysis)).toBe('2024-04-01');
+    });
+
+    it('defaults to commencement when no abatement', () => {
+      const analysis = {
+        ...baseAnalysis,
+        concessions: {
+          ...baseAnalysis.concessions,
+          abatement_type: 'at_commencement' as const,
+          abatement_free_rent_months: 0,
+        },
+        key_dates: {
+          ...baseAnalysis.key_dates,
+          rent_start: undefined,
+        },
+      };
+      expect(getDerivedRentStartDate(analysis)).toBe('2024-01-01');
+    });
+
+    it('returns undefined when commencement is blank', () => {
+      const analysis = {
+        ...baseAnalysis,
+        key_dates: {
+          ...baseAnalysis.key_dates,
+          commencement: '',
+          rent_start: undefined,
+        },
+      };
+      expect(getDerivedRentStartDate(analysis)).toBeUndefined();
     });
   });
 
