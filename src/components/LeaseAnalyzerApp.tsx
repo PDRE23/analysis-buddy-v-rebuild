@@ -3626,20 +3626,23 @@ function ProposalTab({ a, onSave }: { a: AnalysisMeta; onSave: (patch: AnalysisM
               value={local.key_dates.commencement || ""}
               onChange={(e) => {
                 const newCommencement = e.currentTarget.value;
-                setKeyDates({ commencement: newCommencement });
-                
+                const keyDatesPatch: Partial<AnalysisMeta["key_dates"]> = {
+                  commencement: newCommencement
+                };
+
                 // Recalculate expiration if lease term exists
                 if (local.lease_term) {
                   const abatementMonths = getAbatementMonths(local.concessions);
-                  const expiration = calculateExpiration(
+                  keyDatesPatch.expiration = calculateExpiration(
                     newCommencement,
                     local.lease_term.years,
                     local.lease_term.months,
                     local.lease_term.include_abatement_in_term ?? false,
                     abatementMonths
                   );
-                  setKeyDates({ expiration });
                 }
+
+                setKeyDates(keyDatesPatch);
               }}
               onBlur={() => handleBlur('key_dates')}
               error={getFieldError('key_dates')}

@@ -32,19 +32,22 @@ export default function RootLayout({
       >
         <ClientErrorHandler />
         <AuthProvider>
-          <a
-            href="#main-content"
-            className="sr-only focus:not-sr-only focus:absolute focus:top-4 focus:left-4 focus:z-50 focus:px-4 focus:py-2 focus:bg-primary focus:text-white focus:rounded focus:outline-none"
-          >
-            Skip to main content
-          </a>
-          <div className="min-h-screen flex flex-col bg-background text-foreground">
-            <main id="main-content" role="main" className="flex-1">
-              {children}
-            </main>
-            <footer className="py-4 text-center text-xs text-muted-foreground">
-              Created by Peyton Dowd
-            </footer>
+          <div suppressHydrationWarning>
+            <a
+              href="#main-content"
+              className="sr-only focus:not-sr-only focus:absolute focus:top-4 focus:left-4 focus:z-50 focus:px-4 focus:py-2 focus:bg-primary focus:text-white focus:rounded focus:outline-none"
+              suppressHydrationWarning
+            >
+              Skip to main content
+            </a>
+            <div className="min-h-screen flex flex-col bg-background text-foreground">
+              <main id="main-content" role="main" className="flex-1">
+                {children}
+              </main>
+              <footer className="py-4 text-center text-xs text-muted-foreground">
+                Created by Peyton Dowd
+              </footer>
+            </div>
           </div>
         </AuthProvider>
       </body>
