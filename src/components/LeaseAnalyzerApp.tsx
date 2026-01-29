@@ -271,6 +271,76 @@ function overlappingMonths(start: Date, end: Date, a: Date, b: Date): number {
   return Math.max(0, months + 1); // count partial months
 }
 
+type EscalationPeriodLike = {
+  period_start: string;
+  period_end: string;
+  escalation_percentage: number;
+};
+
+type CustomEscalationLookup = {
+  sortedPeriods: EscalationPeriodLike[];
+  yearToPeriodIndex: Map<number, number>;
+  periodFirstYear: Array<number | undefined>;
+  periodBaseAtStart: number[];
+};
+
+function getAnniversaryDate(commencement: Date, year: number): Date {
+  const month = commencement.getMonth();
+  const day = commencement.getDate();
+  const lastDayOfMonth = new Date(year, month + 1, 0).getDate();
+  return new Date(year, month, Math.min(day, lastDayOfMonth));
+}
+
+function buildCustomEscalationLookup(
+  baseValue: number,
+  years: number[],
+  commencement: Date,
+  periods: EscalationPeriodLike[]
+): CustomEscalationLookup {
+  const sortedPeriods = [...periods].sort(
+    (a, b) => new Date(a.period_start).getTime() - new Date(b.period_start).getTime()
+  );
+  const periodDates = sortedPeriods.map((period) => ({
+    start: new Date(period.period_start),
+    end: new Date(period.period_end),
+  }));
+
+  const yearToPeriodIndex = new Map<number, number>();
+  for (const year of years) {
+    const anniversary = getAnniversaryDate(commencement, year);
+    const index = periodDates.findIndex((period) => anniversary >= period.start && anniversary <= period.end);
+    if (index >= 0) {
+      yearToPeriodIndex.set(year, index);
+    }
+  }
+
+  const periodFirstYear: Array<number | undefined> = new Array(sortedPeriods.length);
+  const periodYearCounts: number[] = new Array(sortedPeriods.length).fill(0);
+  for (const [year, index] of yearToPeriodIndex.entries()) {
+    if (periodFirstYear[index] === undefined || year < (periodFirstYear[index] as number)) {
+      periodFirstYear[index] = year;
+    }
+    periodYearCounts[index] += 1;
+  }
+
+  const periodBaseAtStart: number[] = new Array(sortedPeriods.length);
+  let currentBase = baseValue;
+  for (let i = 0; i < sortedPeriods.length; i++) {
+    periodBaseAtStart[i] = currentBase;
+    const yearsInPeriod = periodYearCounts[i];
+    if (yearsInPeriod > 0) {
+      currentBase = currentBase * Math.pow(1 + sortedPeriods[i].escalation_percentage, yearsInPeriod);
+    }
+  }
+
+  return {
+    sortedPeriods,
+    yearToPeriodIndex,
+    periodFirstYear,
+    periodBaseAtStart,
+  };
+}
+
 export function buildAnnualCashflow(a: AnalysisMeta): AnnualLine[] {
   const commencement = new Date(a.key_dates.commencement);
   const expiration = new Date(a.key_dates.expiration);
@@ -324,6 +394,14 @@ export function buildAnnualCashflow(a: AnalysisMeta): AnnualLine[] {
     }
   } else if (escalationType === "custom" && a.rent_escalation?.escalation_periods) {
     // Custom escalation: use escalation periods to determine rate for each year
+    const commencementDate = new Date(a.key_dates.commencement);
+    const rentLookup = buildCustomEscalationLookup(
+      baseRent,
+      years,
+      commencementDate,
+      a.rent_escalation.escalation_periods
+    );
+
     for (const y of years) {
       const ys = new Date(`${y}-01-01T00:00:00`);
       const ye = new Date(`${y}-12-31T23:59:59`);
@@ -333,28 +411,17 @@ export function buildAnnualCashflow(a: AnalysisMeta): AnnualLine[] {
       const months = overlappingMonths(commencement, expiration, ys, ye);
       if (months === 0) continue;
       
-      // Find the escalation period that applies to this year
-      let escalationRate = 0;
-      let yearsSincePeriodStart = 0;
-      
-      // Sort periods by start date to find the applicable one
-      const sortedPeriods = [...a.rent_escalation.escalation_periods].sort((a, b) => 
-        new Date(a.period_start).getTime() - new Date(b.period_start).getTime()
-      );
-      
-      for (const period of sortedPeriods) {
-        const periodStart = new Date(period.period_start);
-        const periodEnd = new Date(period.period_end);
-        
-        if (y >= periodStart.getFullYear() && y <= periodEnd.getFullYear()) {
-          escalationRate = period.escalation_percentage;
-          yearsSincePeriodStart = y - periodStart.getFullYear();
-          break;
-        }
+      const periodIndex = rentLookup.yearToPeriodIndex.get(y);
+      if (periodIndex === undefined || rentLookup.periodFirstYear[periodIndex] === undefined) {
+        const annualRentForMonths = (baseRent * rsf * months) / 12;
+        addToYear(y, "base_rent", annualRentForMonths);
+        continue;
       }
-      
-      // Calculate escalated rent for this year
-      const escalatedRate = baseRent * Math.pow(1 + escalationRate, yearsSincePeriodStart);
+
+      const escalationRate = rentLookup.sortedPeriods[periodIndex].escalation_percentage;
+      const yearsSincePeriodStart = y - (rentLookup.periodFirstYear[periodIndex] as number);
+      const baseAtStart = rentLookup.periodBaseAtStart[periodIndex];
+      const escalatedRate = baseAtStart * Math.pow(1 + escalationRate, yearsSincePeriodStart);
       const annualRentForMonths = (escalatedRate * rsf * months) / 12;
       addToYear(y, "base_rent", annualRentForMonths);
     }
@@ -402,6 +469,10 @@ export function buildAnnualCashflow(a: AnalysisMeta): AnnualLine[] {
   const commencementDate = new Date(a.key_dates.commencement);
   const commencementYear = commencementDate.getFullYear();
   const commencementMonth = commencementDate.getMonth(); // 0-11
+  const opExLookup =
+    opExEscalationType === "custom" && a.operating.escalation_periods
+      ? buildCustomEscalationLookup(baseOp, years, commencementDate, a.operating.escalation_periods)
+      : undefined;
 
   for (const y of years) {
     let escalatedOp: number;
@@ -412,32 +483,19 @@ export function buildAnnualCashflow(a: AnalysisMeta): AnnualLine[] {
       const cap = a.operating.escalation_cap;
       const yearsSinceStart = y - startYear;
       escalatedOp = escalate(baseOp, yearsSinceStart, method, value, cap);
-    } else if (opExEscalationType === "custom" && a.operating.escalation_periods) {
-      // Custom escalation: find the applicable period for this year
-      let escalationRate = 0;
-      let yearsSincePeriodStart = 0;
-      
-      // Sort periods by start date to find the applicable one
-      const sortedPeriods = [...a.operating.escalation_periods].sort((a, b) => 
-        new Date(a.period_start).getTime() - new Date(b.period_start).getTime()
-      );
-      
-      for (const period of sortedPeriods) {
-        const periodStart = new Date(period.period_start);
-        const periodEnd = new Date(period.period_end);
-        
-        if (y >= periodStart.getFullYear() && y <= periodEnd.getFullYear()) {
-          escalationRate = period.escalation_percentage;
-          yearsSincePeriodStart = y - periodStart.getFullYear();
-          break;
+    } else if (opExEscalationType === "custom" && a.operating.escalation_periods && opExLookup) {
+      const periodIndex = opExLookup.yearToPeriodIndex.get(y);
+      if (periodIndex === undefined || opExLookup.periodFirstYear[periodIndex] === undefined) {
+        escalatedOp = baseOp;
+      } else {
+        const escalationRate = opExLookup.sortedPeriods[periodIndex].escalation_percentage;
+        const yearsSincePeriodStart = y - (opExLookup.periodFirstYear[periodIndex] as number);
+        const baseAtStart = opExLookup.periodBaseAtStart[periodIndex];
+        escalatedOp = baseAtStart * Math.pow(1 + escalationRate, yearsSincePeriodStart);
+        if (a.operating.escalation_cap) {
+          const maxEscalated = baseAtStart * Math.pow(1 + a.operating.escalation_cap, yearsSincePeriodStart);
+          escalatedOp = Math.min(escalatedOp, maxEscalated);
         }
-      }
-      
-      // Apply escalation with cap if set
-      escalatedOp = baseOp * Math.pow(1 + escalationRate, yearsSincePeriodStart);
-      if (a.operating.escalation_cap) {
-        const maxEscalated = baseOp * Math.pow(1 + a.operating.escalation_cap, yearsSincePeriodStart);
-        escalatedOp = Math.min(escalatedOp, maxEscalated);
       }
     } else {
       // Fallback: use old escalation_method structure
@@ -456,27 +514,19 @@ export function buildAnnualCashflow(a: AnalysisMeta): AnnualLine[] {
         const value = a.operating.escalation_value ?? 0;
         const cap = a.operating.escalation_cap;
         baseYearOp = escalate(baseOp, baseYearIndex, method, value, cap);
-      } else if (opExEscalationType === "custom" && a.operating.escalation_periods) {
-        // Find escalation rate at base year
-        const sortedPeriods = [...a.operating.escalation_periods].sort((a, b) => 
-          new Date(a.period_start).getTime() - new Date(b.period_start).getTime()
-        );
-        let escalationRate = 0;
-        let yearsSincePeriodStart = 0;
-        
-        for (const period of sortedPeriods) {
-          const periodStart = new Date(period.period_start);
-          const periodEnd = new Date(period.period_end);
-          if (baseYear >= periodStart.getFullYear() && baseYear <= periodEnd.getFullYear()) {
-            escalationRate = period.escalation_percentage;
-            yearsSincePeriodStart = baseYear - periodStart.getFullYear();
-            break;
+      } else if (opExEscalationType === "custom" && a.operating.escalation_periods && opExLookup) {
+        const periodIndex = opExLookup.yearToPeriodIndex.get(baseYear);
+        if (periodIndex === undefined || opExLookup.periodFirstYear[periodIndex] === undefined) {
+          baseYearOp = baseOp;
+        } else {
+          const escalationRate = opExLookup.sortedPeriods[periodIndex].escalation_percentage;
+          const yearsSincePeriodStart = baseYear - (opExLookup.periodFirstYear[periodIndex] as number);
+          const baseAtStart = opExLookup.periodBaseAtStart[periodIndex];
+          baseYearOp = baseAtStart * Math.pow(1 + escalationRate, yearsSincePeriodStart);
+          if (a.operating.escalation_cap) {
+            const maxEscalated = baseAtStart * Math.pow(1 + a.operating.escalation_cap, yearsSincePeriodStart);
+            baseYearOp = Math.min(baseYearOp, maxEscalated);
           }
-        }
-        baseYearOp = baseOp * Math.pow(1 + escalationRate, yearsSincePeriodStart);
-        if (a.operating.escalation_cap) {
-          const maxEscalated = baseOp * Math.pow(1 + a.operating.escalation_cap, yearsSincePeriodStart);
-          baseYearOp = Math.min(baseYearOp, maxEscalated);
         }
       } else {
         const value = a.operating.escalation_value ?? 0;
@@ -570,11 +620,11 @@ export function buildAnnualCashflow(a: AnalysisMeta): AnnualLine[] {
   if (a.parking?.monthly_rate_per_stall && a.parking.stalls) {
     const pr = a.parking.monthly_rate_per_stall;
     const stalls = a.parking.stalls;
-    const pm = a.parking.escalation_method ?? "fixed";
-    const pv = a.parking.escalation_value ?? 0;
+    const pvRaw = a.parking.escalation_value ?? 0;
+    const pv = pvRaw > 1 ? pvRaw / 100 : pvRaw;
     for (let i = 0; i < years.length; i++) {
       const y = years[i];
-      const escalatedMonthly = escalate(pr, i, pm, pv);
+      const escalatedMonthly = escalate(pr, i, "fixed", pv);
       addToYear(y, "parking", escalatedMonthly * 12 * stalls);
     }
   }
@@ -835,7 +885,7 @@ const YearTable = React.memo(function YearTable({ lines, rsf, meta }: { lines: A
   });
   
   const avgBaseRentPSF = (rsf * lines.length) > 0 ? totals.base_rent / (rsf * lines.length) : 0;
-  const avgNetCFPSF = (rsf * lines.length) > 0 ? totals.net_cash_flow / (rsf * lines.length) : 0;
+  const avgOpExPSF = (rsf * lines.length) > 0 ? totals.operating / (rsf * lines.length) : 0;
   
   // Format PSF helper
   const fmtPSF = (value: number) => `$${(value || 0).toFixed(2)}/SF`;
@@ -862,13 +912,23 @@ const YearTable = React.memo(function YearTable({ lines, rsf, meta }: { lines: A
   
   return (
     <div className="overflow-x-auto border rounded-xl" style={{ maxWidth: '100%' }}>
-      <table className="min-w-full text-sm" style={{ minWidth: '800px' }}>
+      <table className="w-full text-sm">
         <thead className="bg-muted/50">
           <tr>
             <th className="text-left p-2">Year</th>
             <th className="text-right p-2" title="Annual base rent">Base Rent</th>
             <th className="text-right p-2" title="Base rent per square foot per year">Base Rent $/SF</th>
-            <th className="text-right p-2" title="Operating expense pass-throughs">Op. Pass-Through</th>
+            <th
+              className="text-right p-2"
+              title={
+                meta?.lease_type === "NNN"
+                  ? "Operating expenses"
+                  : "Operating expense pass-throughs"
+              }
+            >
+              {meta?.lease_type === "NNN" ? "OpEx" : "OpEx Pass-Through"}
+            </th>
+            <th className="text-right p-2" title="Operating expenses per square foot per year">OpEx $/SF</th>
             <th className="text-right p-2" title="Annual parking costs">Parking</th>
             <th className="text-right p-2" title="Free rent abatement credit">Abatement (credit)</th>
             {hasTIShortfall && (
@@ -880,10 +940,8 @@ const YearTable = React.memo(function YearTable({ lines, rsf, meta }: { lines: A
             {hasAmortizedCosts && (
               <th className="text-right p-2" title="Amortized deal costs (TI, free rent, transaction costs)">Amortized</th>
             )}
-            <th className="text-right p-2" title="Subtotal before abatement and costs">Subtotal</th>
-            <th className="text-right p-2 font-medium" title="Net cash flow including all adjustments">Net Cash Flow</th>
-            <th className="text-right p-2" title="Net cash flow per square foot per year">Net CF $/SF</th>
-            <th className="text-right p-2 font-medium" title="Cumulative net cash flow from lease start">Cumulative NCF</th>
+            <th className="text-right p-2 font-medium" title="Net cash flow including all adjustments">Total</th>
+            <th className="text-right p-2 font-medium" title="Cumulative net cash flow from lease start">Cumulative Total</th>
           </tr>
         </thead>
         <tbody>
@@ -918,6 +976,7 @@ const YearTable = React.memo(function YearTable({ lines, rsf, meta }: { lines: A
                 <td className="p-2 text-right">{fmtMoney(r.base_rent)}</td>
                 <td className="p-2 text-right text-muted-foreground">{fmtPSF(rsf > 0 ? (r.base_rent / rsf) : 0)}</td>
                 <td className="p-2 text-right">{fmtMoney(r.operating)}</td>
+                <td className="p-2 text-right text-muted-foreground">{fmtPSF(rsf > 0 ? (r.operating / rsf) : 0)}</td>
                 <td className="p-2 text-right">{fmtMoney(r.parking)}</td>
                 <td className="p-2 text-right text-green-600">{fmtMoney(r.abatement_credit)}</td>
                 {hasTIShortfall && (
@@ -935,11 +994,9 @@ const YearTable = React.memo(function YearTable({ lines, rsf, meta }: { lines: A
                     {(r.amortized_costs || 0) !== 0 ? fmtMoney(r.amortized_costs) : "-"}
                   </td>
                 )}
-                <td className="p-2 text-right">{fmtMoney(r.subtotal)}</td>
                 <td className={`p-2 text-right font-medium ${!isPositive ? 'text-red-600' : ''}`}>
                   {fmtMoney(r.net_cash_flow)}
                 </td>
-                <td className="p-2 text-right text-muted-foreground">{fmtPSF(rsf > 0 ? (r.net_cash_flow / rsf) : 0)}</td>
                 <td className={`p-2 text-right font-medium ${(cumulativeValues[idx] || 0) < 0 ? 'text-red-600' : 'text-green-700'}`}>
                   {fmtMoney(cumulativeValues[idx] || 0)}
                 </td>
@@ -953,6 +1010,7 @@ const YearTable = React.memo(function YearTable({ lines, rsf, meta }: { lines: A
             <td className="p-2 text-right">{fmtMoney(totals.base_rent)}</td>
             <td className="p-2 text-right text-muted-foreground">{fmtPSF(avgBaseRentPSF)}</td>
             <td className="p-2 text-right">{fmtMoney(totals.operating)}</td>
+            <td className="p-2 text-right text-muted-foreground">{fmtPSF(avgOpExPSF)}</td>
             <td className="p-2 text-right">{fmtMoney(totals.parking)}</td>
             <td className="p-2 text-right text-green-600">{fmtMoney(totals.abatement_credit)}</td>
             {hasTIShortfall && (
@@ -964,9 +1022,7 @@ const YearTable = React.memo(function YearTable({ lines, rsf, meta }: { lines: A
             {hasAmortizedCosts && (
               <td className="p-2 text-right text-red-600">{fmtMoney(totals.amortized_costs)}</td>
             )}
-            <td className="p-2 text-right">{fmtMoney(totals.subtotal)}</td>
             <td className="p-2 text-right">{fmtMoney(totals.net_cash_flow)}</td>
-            <td className="p-2 text-right text-muted-foreground">{fmtPSF(avgNetCFPSF)}</td>
             <td className="p-2 text-right">{fmtMoney(cumulativeValues[cumulativeValues.length - 1] || 0)}</td>
           </tr>
         </tfoot>
@@ -974,6 +1030,51 @@ const YearTable = React.memo(function YearTable({ lines, rsf, meta }: { lines: A
     </div>
   );
 });
+
+function QuickPresentationMode({
+  meta,
+  onClose,
+}: {
+  meta: AnalysisMeta;
+  onClose: () => void;
+}) {
+  const lines = React.useMemo(() => buildAnnualCashflow(meta), [meta]);
+
+  React.useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        onClose();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
+
+  return (
+    <div className="fixed inset-0 z-50 bg-background text-foreground">
+      <div className="h-full w-full overflow-auto">
+        <div className="max-w-7xl mx-auto w-full px-6 py-6 space-y-6">
+          <div className="flex items-center justify-between">
+            <h1 className="text-2xl font-semibold">Quick Presentation</h1>
+            <Button variant="outline" size="sm" onClick={onClose}>
+              <X className="h-4 w-4 mr-2" />
+              Close
+            </Button>
+          </div>
+          <DealTermsSummaryCard meta={meta} />
+          <Card className="rounded-2xl">
+            <CardHeader>
+              <CardTitle>Annual Cashflow</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <YearTable lines={lines} rsf={meta.rsf} meta={meta} />
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 /*************************************************
  * Main App
@@ -1002,6 +1103,7 @@ export default function LeaseAnalyzerApp({
   const [pendingNewAnalysisId, setPendingNewAnalysisId] = useState<string | null>(null);
   const processedPendingIdRef = useRef<string | null>(null);
   const [presentationMode, setPresentationMode] = useState(false);
+  const [quickPresentationMode, setQuickPresentationMode] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [lastSaved, setLastSaved] = useState<string | null>(null);
   const [storageStats, setStorageStats] = useState<{
@@ -1918,7 +2020,12 @@ export default function LeaseAnalyzerApp({
           }
         >
           <div className="h-full flex flex-col overflow-hidden">
-          {presentationMode && selectedProposal ? (
+          {quickPresentationMode && selectedProposal ? (
+            <QuickPresentationMode
+              meta={selectedProposal.meta}
+              onClose={() => setQuickPresentationMode(false)}
+            />
+          ) : presentationMode && selectedProposal ? (
             <PresentationMode
               proposal={selectedProposal}
               analysis={selectedAnalysis}
@@ -1960,6 +2067,7 @@ export default function LeaseAnalyzerApp({
               onSyncWithDeal={() => handleSyncAnalysisToDeal(selectedAnalysis.id)}
               onCreateDealFromAnalysis={() => handleCreateDealFromAnalysis(selectedAnalysis.id)}
               onEnterPresentation={() => setPresentationMode(true)}
+              onEnterQuickPresentation={() => setQuickPresentationMode(true)}
               allProposals={selectedAnalysis.proposals}
             />
           )}
@@ -2409,6 +2517,7 @@ function Workspace({
   onSyncWithDeal,
   onCreateDealFromAnalysis,
   onEnterPresentation,
+  onEnterQuickPresentation,
   allProposals,
 }: {
   proposal: Proposal;
@@ -2421,8 +2530,10 @@ function Workspace({
   onSyncWithDeal: () => void;
   onCreateDealFromAnalysis: () => void;
   onEnterPresentation?: () => void;
+  onEnterQuickPresentation?: () => void;
   allProposals?: Proposal[];
 }) {
+  const saveRequestRef = useRef<(() => void) | null>(null);
   const meta = proposal.meta;
   const analysisResult = useMemo(() => analyzeLease(meta), [meta]);
   const lines = analysisResult.cashflow;
@@ -2544,6 +2655,17 @@ function Workspace({
               onUnlink={onUnlinkFromDeal}
               onSyncNow={onSyncWithDeal}
             />
+            {onEnterQuickPresentation && (
+              <Button
+                variant="outline"
+                onClick={onEnterQuickPresentation}
+                size="sm"
+                title="Enter Quick Presentation Mode"
+              >
+                <Presentation className="h-4 w-4 mr-2" />
+                Quick Present
+              </Button>
+            )}
             {onEnterPresentation && (
               <Button
                 variant="default"
@@ -2565,7 +2687,7 @@ function Workspace({
               <span className="hidden sm:inline">Export</span>
             </Button>
             <Button 
-              onClick={() => onSave(meta)}
+              onClick={() => (saveRequestRef.current ? saveRequestRef.current() : onSave(meta))}
               size="sm"
               title="Save changes"
             >
@@ -2622,7 +2744,13 @@ function Workspace({
           </TabsTrigger>
         </TabsList>
         <TabsContent value="proposal" className="overflow-y-auto flex-1 min-h-0">
-          <ProposalTab a={meta} onSave={onSave} />
+          <ProposalTab
+            a={meta}
+            onSave={onSave}
+            onRequestSave={(handler) => {
+              saveRequestRef.current = handler;
+            }}
+          />
         </TabsContent>
         <TabsContent value="analysis" className="overflow-y-auto flex-1 min-h-0">
           <AnalysisTab lines={lines} meta={meta} />
@@ -3090,7 +3218,15 @@ function OpExEscalationPeriodRow({
   );
 }
 
-function ProposalTab({ a, onSave }: { a: AnalysisMeta; onSave: (patch: AnalysisMeta) => void }) {
+function ProposalTab({
+  a,
+  onSave,
+  onRequestSave
+}: {
+  a: AnalysisMeta;
+  onSave: (patch: AnalysisMeta) => void;
+  onRequestSave?: (handler: () => void) => void;
+}) {
   const [showConfirmation, setShowConfirmation] = React.useState(false);
   const [pendingData, setPendingData] = React.useState<AnalysisMeta | null>(null);
   const [confirmations, setConfirmations] = React.useState<ConfirmationRequest[]>([]);
@@ -3164,6 +3300,14 @@ function ProposalTab({ a, onSave }: { a: AnalysisMeta; onSave: (patch: AnalysisM
       validateOnBlur: true
     }
   );
+
+  useEffect(() => {
+    if (onRequestSave) {
+      onRequestSave(() => {
+        void handleSubmit();
+      });
+    }
+  }, [handleSubmit, onRequestSave]);
 
   // Auto-save on critical field changes (with debounce)
   useEffect(() => {
@@ -4396,8 +4540,12 @@ function ProposalTab({ a, onSave }: { a: AnalysisMeta; onSave: (patch: AnalysisM
               />
               <PercentageInput
                 label="Parking Escalation %"
-                value={local.parking?.escalation_value}
-                onChange={(value) => setParking({ escalation_value: value })}
+                value={
+                  (local.parking?.escalation_value ?? 0) > 1
+                    ? (local.parking?.escalation_value ?? 0)
+                    : (local.parking?.escalation_value ?? 0) * 100
+                }
+                onChange={(value) => setParking({ escalation_value: (value || 0) / 100 })}
                 placeholder="0.00"
                 hint="Annual escalation rate (fixed percentage)"
               />
@@ -4667,9 +4815,7 @@ function exportTableToCSV(lines: AnnualLine[], rsf: number, meta: AnalysisMeta):
     ...(hasTIShortfall ? ['TI Shortfall'] : []),
     ...(hasTransactionCosts ? ['Transaction Costs'] : []),
     ...(hasAmortizedCosts ? ['Amortized Costs'] : []),
-    'Subtotal',
-    'Net Cash Flow',
-    'Net CF $/SF',
+    'Total',
     'Cumulative NCF',
   ];
   
@@ -4684,9 +4830,7 @@ function exportTableToCSV(lines: AnnualLine[], rsf: number, meta: AnalysisMeta):
     ...(hasTIShortfall ? [(r.ti_shortfall || 0).toFixed(2)] : []),
     ...(hasTransactionCosts ? [(r.transaction_costs || 0).toFixed(2)] : []),
     ...(hasAmortizedCosts ? [(r.amortized_costs || 0).toFixed(2)] : []),
-    r.subtotal.toFixed(2),
     r.net_cash_flow.toFixed(2),
-    (rsf > 0 ? (r.net_cash_flow / rsf) : 0).toFixed(2),
     (cumulativeValues[idx] || 0).toFixed(2),
   ]);
   
@@ -4714,7 +4858,6 @@ function exportTableToCSV(lines: AnnualLine[], rsf: number, meta: AnalysisMeta):
   });
   
   const avgBaseRentPSF = totals.base_rent / (rsf * lines.length);
-  const avgNetCFPSF = totals.net_cash_flow / (rsf * lines.length);
   
   // Add totals row
   rows.push([
@@ -4727,9 +4870,7 @@ function exportTableToCSV(lines: AnnualLine[], rsf: number, meta: AnalysisMeta):
     ...(hasTIShortfall ? [totals.ti_shortfall.toFixed(2)] : []),
     ...(hasTransactionCosts ? [totals.transaction_costs.toFixed(2)] : []),
     ...(hasAmortizedCosts ? [totals.amortized_costs.toFixed(2)] : []),
-    totals.subtotal.toFixed(2),
     totals.net_cash_flow.toFixed(2),
-    avgNetCFPSF.toFixed(2),
     cumulativeValues[cumulativeValues.length - 1].toFixed(2),
   ]);
   
@@ -4786,10 +4927,8 @@ function copyTableToClipboard(lines: AnnualLine[], rsf: number, meta: AnalysisMe
     ...(hasTIShortfall ? ['TI Shortfall'] : []),
     ...(hasTransactionCosts ? ['Trans. Costs'] : []),
     ...(hasAmortizedCosts ? ['Amortized'] : []),
-    'Subtotal',
-    'Net CF',
-    'Net CF $/SF',
-    'Cumulative',
+    'Total',
+    'Cumulative Total',
   ].join('\t');
   
   const rows = lines.map((r, idx) => [
@@ -4802,9 +4941,7 @@ function copyTableToClipboard(lines: AnnualLine[], rsf: number, meta: AnalysisMe
     ...(hasTIShortfall ? [fmtMoney(r.ti_shortfall || 0)] : []),
     ...(hasTransactionCosts ? [fmtMoney(r.transaction_costs || 0)] : []),
     ...(hasAmortizedCosts ? [fmtMoney(r.amortized_costs || 0)] : []),
-    fmtMoney(r.subtotal),
     fmtMoney(r.net_cash_flow),
-    fmtPSF(rsf > 0 ? (r.net_cash_flow / rsf) : 0),
     fmtMoney(cumulativeValues[idx] || 0),
   ].join('\t'));
   

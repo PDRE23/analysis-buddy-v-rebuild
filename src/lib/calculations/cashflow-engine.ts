@@ -25,6 +25,76 @@ function overlappingMonths(start: Date, end: Date, a: Date, b: Date): number {
   return Math.max(0, months + 1); // count partial months
 }
 
+type EscalationPeriodLike = {
+  period_start: string;
+  period_end: string;
+  escalation_percentage: number;
+};
+
+type CustomEscalationLookup = {
+  sortedPeriods: EscalationPeriodLike[];
+  yearToPeriodIndex: Map<number, number>;
+  periodFirstYear: Array<number | undefined>;
+  periodBaseAtStart: number[];
+};
+
+function getAnniversaryDate(commencement: Date, year: number): Date {
+  const month = commencement.getMonth();
+  const day = commencement.getDate();
+  const lastDayOfMonth = new Date(year, month + 1, 0).getDate();
+  return new Date(year, month, Math.min(day, lastDayOfMonth));
+}
+
+function buildCustomEscalationLookup(
+  baseValue: number,
+  years: number[],
+  commencement: Date,
+  periods: EscalationPeriodLike[]
+): CustomEscalationLookup {
+  const sortedPeriods = [...periods].sort(
+    (a, b) => new Date(a.period_start).getTime() - new Date(b.period_start).getTime()
+  );
+  const periodDates = sortedPeriods.map((period) => ({
+    start: new Date(period.period_start),
+    end: new Date(period.period_end),
+  }));
+
+  const yearToPeriodIndex = new Map<number, number>();
+  for (const year of years) {
+    const anniversary = getAnniversaryDate(commencement, year);
+    const index = periodDates.findIndex((period) => anniversary >= period.start && anniversary <= period.end);
+    if (index >= 0) {
+      yearToPeriodIndex.set(year, index);
+    }
+  }
+
+  const periodFirstYear: Array<number | undefined> = new Array(sortedPeriods.length);
+  const periodYearCounts: number[] = new Array(sortedPeriods.length).fill(0);
+  for (const [year, index] of yearToPeriodIndex.entries()) {
+    if (periodFirstYear[index] === undefined || year < (periodFirstYear[index] as number)) {
+      periodFirstYear[index] = year;
+    }
+    periodYearCounts[index] += 1;
+  }
+
+  const periodBaseAtStart: number[] = new Array(sortedPeriods.length);
+  let currentBase = baseValue;
+  for (let i = 0; i < sortedPeriods.length; i++) {
+    periodBaseAtStart[i] = currentBase;
+    const yearsInPeriod = periodYearCounts[i];
+    if (yearsInPeriod > 0) {
+      currentBase = currentBase * Math.pow(1 + sortedPeriods[i].escalation_percentage, yearsInPeriod);
+    }
+  }
+
+  return {
+    sortedPeriods,
+    yearToPeriodIndex,
+    periodFirstYear,
+    periodBaseAtStart,
+  };
+}
+
 export function buildAnnualCashflow(a: AnalysisMeta): AnnualLine[] {
   const commencement = new Date(a.key_dates.commencement);
   const expiration = new Date(a.key_dates.expiration);
@@ -78,6 +148,14 @@ export function buildAnnualCashflow(a: AnalysisMeta): AnnualLine[] {
     }
   } else if (escalationType === "custom" && a.rent_escalation?.escalation_periods) {
     // Custom escalation: use escalation periods to determine rate for each year
+    const commencementDate = new Date(a.key_dates.commencement);
+    const rentLookup = buildCustomEscalationLookup(
+      baseRent,
+      years,
+      commencementDate,
+      a.rent_escalation.escalation_periods
+    );
+
     for (const y of years) {
       const ys = new Date(`${y}-01-01T00:00:00`);
       const ye = new Date(`${y}-12-31T23:59:59`);
@@ -87,28 +165,17 @@ export function buildAnnualCashflow(a: AnalysisMeta): AnnualLine[] {
       const months = overlappingMonths(commencement, expiration, ys, ye);
       if (months === 0) continue;
       
-      // Find the escalation period that applies to this year
-      let escalationRate = 0;
-      let yearsSincePeriodStart = 0;
-      
-      // Sort periods by start date to find the applicable one
-      const sortedPeriods = [...a.rent_escalation.escalation_periods].sort((a, b) => 
-        new Date(a.period_start).getTime() - new Date(b.period_start).getTime()
-      );
-      
-      for (const period of sortedPeriods) {
-        const periodStart = new Date(period.period_start);
-        const periodEnd = new Date(period.period_end);
-        
-        if (y >= periodStart.getFullYear() && y <= periodEnd.getFullYear()) {
-          escalationRate = period.escalation_percentage;
-          yearsSincePeriodStart = y - periodStart.getFullYear();
-          break;
-        }
+      const periodIndex = rentLookup.yearToPeriodIndex.get(y);
+      if (periodIndex === undefined || rentLookup.periodFirstYear[periodIndex] === undefined) {
+        const annualRentForMonths = (baseRent * rsf * months) / 12;
+        addToYear(y, "base_rent", annualRentForMonths);
+        continue;
       }
-      
-      // Calculate escalated rent for this year
-      const escalatedRate = baseRent * Math.pow(1 + escalationRate, yearsSincePeriodStart);
+
+      const escalationRate = rentLookup.sortedPeriods[periodIndex].escalation_percentage;
+      const yearsSincePeriodStart = y - (rentLookup.periodFirstYear[periodIndex] as number);
+      const baseAtStart = rentLookup.periodBaseAtStart[periodIndex];
+      const escalatedRate = baseAtStart * Math.pow(1 + escalationRate, yearsSincePeriodStart);
       const annualRentForMonths = (escalatedRate * rsf * months) / 12;
       addToYear(y, "base_rent", annualRentForMonths);
     }
@@ -156,6 +223,10 @@ export function buildAnnualCashflow(a: AnalysisMeta): AnnualLine[] {
   const commencementDate = new Date(a.key_dates.commencement);
   const commencementYear = commencementDate.getFullYear();
   const commencementMonth = commencementDate.getMonth(); // 0-11
+  const opExLookup =
+    opExEscalationType === "custom" && a.operating.escalation_periods
+      ? buildCustomEscalationLookup(baseOp, years, commencementDate, a.operating.escalation_periods)
+      : undefined;
 
   for (const y of years) {
     let escalatedOp: number;
@@ -166,32 +237,19 @@ export function buildAnnualCashflow(a: AnalysisMeta): AnnualLine[] {
       const cap = a.operating.escalation_cap;
       const yearsSinceStart = y - startYear;
       escalatedOp = escalate(baseOp, yearsSinceStart, method, value, cap);
-    } else if (opExEscalationType === "custom" && a.operating.escalation_periods) {
-      // Custom escalation: find the applicable period for this year
-      let escalationRate = 0;
-      let yearsSincePeriodStart = 0;
-      
-      // Sort periods by start date to find the applicable one
-      const sortedPeriods = [...a.operating.escalation_periods].sort((a, b) => 
-        new Date(a.period_start).getTime() - new Date(b.period_start).getTime()
-      );
-      
-      for (const period of sortedPeriods) {
-        const periodStart = new Date(period.period_start);
-        const periodEnd = new Date(period.period_end);
-        
-        if (y >= periodStart.getFullYear() && y <= periodEnd.getFullYear()) {
-          escalationRate = period.escalation_percentage;
-          yearsSincePeriodStart = y - periodStart.getFullYear();
-          break;
+    } else if (opExEscalationType === "custom" && a.operating.escalation_periods && opExLookup) {
+      const periodIndex = opExLookup.yearToPeriodIndex.get(y);
+      if (periodIndex === undefined || opExLookup.periodFirstYear[periodIndex] === undefined) {
+        escalatedOp = baseOp;
+      } else {
+        const escalationRate = opExLookup.sortedPeriods[periodIndex].escalation_percentage;
+        const yearsSincePeriodStart = y - (opExLookup.periodFirstYear[periodIndex] as number);
+        const baseAtStart = opExLookup.periodBaseAtStart[periodIndex];
+        escalatedOp = baseAtStart * Math.pow(1 + escalationRate, yearsSincePeriodStart);
+        if (a.operating.escalation_cap) {
+          const maxEscalated = baseAtStart * Math.pow(1 + a.operating.escalation_cap, yearsSincePeriodStart);
+          escalatedOp = Math.min(escalatedOp, maxEscalated);
         }
-      }
-      
-      // Apply escalation with cap if set
-      escalatedOp = baseOp * Math.pow(1 + escalationRate, yearsSincePeriodStart);
-      if (a.operating.escalation_cap) {
-        const maxEscalated = baseOp * Math.pow(1 + a.operating.escalation_cap, yearsSincePeriodStart);
-        escalatedOp = Math.min(escalatedOp, maxEscalated);
       }
     } else {
       // Fallback: use old escalation_method structure
@@ -210,27 +268,19 @@ export function buildAnnualCashflow(a: AnalysisMeta): AnnualLine[] {
         const value = a.operating.escalation_value ?? 0;
         const cap = a.operating.escalation_cap;
         baseYearOp = escalate(baseOp, baseYearIndex, method, value, cap);
-      } else if (opExEscalationType === "custom" && a.operating.escalation_periods) {
-        // Find escalation rate at base year
-        const sortedPeriods = [...a.operating.escalation_periods].sort((a, b) => 
-          new Date(a.period_start).getTime() - new Date(b.period_start).getTime()
-        );
-        let escalationRate = 0;
-        let yearsSincePeriodStart = 0;
-        
-        for (const period of sortedPeriods) {
-          const periodStart = new Date(period.period_start);
-          const periodEnd = new Date(period.period_end);
-          if (baseYear >= periodStart.getFullYear() && baseYear <= periodEnd.getFullYear()) {
-            escalationRate = period.escalation_percentage;
-            yearsSincePeriodStart = baseYear - periodStart.getFullYear();
-            break;
+      } else if (opExEscalationType === "custom" && a.operating.escalation_periods && opExLookup) {
+        const periodIndex = opExLookup.yearToPeriodIndex.get(baseYear);
+        if (periodIndex === undefined || opExLookup.periodFirstYear[periodIndex] === undefined) {
+          baseYearOp = baseOp;
+        } else {
+          const escalationRate = opExLookup.sortedPeriods[periodIndex].escalation_percentage;
+          const yearsSincePeriodStart = baseYear - (opExLookup.periodFirstYear[periodIndex] as number);
+          const baseAtStart = opExLookup.periodBaseAtStart[periodIndex];
+          baseYearOp = baseAtStart * Math.pow(1 + escalationRate, yearsSincePeriodStart);
+          if (a.operating.escalation_cap) {
+            const maxEscalated = baseAtStart * Math.pow(1 + a.operating.escalation_cap, yearsSincePeriodStart);
+            baseYearOp = Math.min(baseYearOp, maxEscalated);
           }
-        }
-        baseYearOp = baseOp * Math.pow(1 + escalationRate, yearsSincePeriodStart);
-        if (a.operating.escalation_cap) {
-          const maxEscalated = baseOp * Math.pow(1 + a.operating.escalation_cap, yearsSincePeriodStart);
-          baseYearOp = Math.min(baseYearOp, maxEscalated);
         }
       } else {
         const value = a.operating.escalation_value ?? 0;
@@ -324,11 +374,11 @@ export function buildAnnualCashflow(a: AnalysisMeta): AnnualLine[] {
   if (a.parking?.monthly_rate_per_stall && a.parking.stalls) {
     const pr = a.parking.monthly_rate_per_stall;
     const stalls = a.parking.stalls;
-    const pm = a.parking.escalation_method ?? "fixed";
-    const pv = a.parking.escalation_value ?? 0;
+    const pvRaw = a.parking.escalation_value ?? 0;
+    const pv = pvRaw > 1 ? pvRaw / 100 : pvRaw;
     for (let i = 0; i < years.length; i++) {
       const y = years[i];
-      const escalatedMonthly = escalate(pr, i, pm, pv);
+      const escalatedMonthly = escalate(pr, i, "fixed", pv);
       addToYear(y, "parking", escalatedMonthly * 12 * stalls);
     }
   }

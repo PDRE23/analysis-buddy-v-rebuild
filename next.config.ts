@@ -68,7 +68,11 @@ const nextConfig: NextConfig = {
   },
   // Webpack config - only applies when using webpack (dev:webpack script)
   // Turbopack (default) doesn't use this config
-  webpack: (config) => {
+  webpack: (config, { dev }) => {
+    if (dev) {
+      // Avoid disk cache corruption/locks on Windows
+      config.cache = { type: "memory" };
+    }
     config.optimization = {
       ...config.optimization,
       splitChunks: {
