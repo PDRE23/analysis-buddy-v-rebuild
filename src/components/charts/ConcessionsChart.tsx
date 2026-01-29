@@ -22,8 +22,8 @@ import {
 import type { PieLabelRenderProps } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import type { AnalysisMeta } from "../LeaseAnalyzerApp";
-import type { AnnualLine } from "../LeaseAnalyzerApp";
+import type { AnalysisMeta } from "@/types";
+import type { AnnualLine } from "@/types";
 import { getFreeRentMonths } from "@/lib/utils";
 
 interface ConcessionsChartProps {

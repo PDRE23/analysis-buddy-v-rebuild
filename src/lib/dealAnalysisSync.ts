@@ -4,7 +4,7 @@
  */
 
 import type { Deal } from "@/lib/types/deal";
-import type { AnalysisMeta } from "@/components/LeaseAnalyzerApp";
+import type { AnalysisMeta } from "@/types";
 import { calculateCommission } from "./commission";
 
 /**

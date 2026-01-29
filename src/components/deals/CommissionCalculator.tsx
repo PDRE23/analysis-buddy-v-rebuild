@@ -14,7 +14,7 @@ import {
   DEFAULT_INDUSTRIAL_COMMISSION,
   type CommissionStructure 
 } from "@/lib/commission";
-import type { AnalysisMeta } from "@/components/LeaseAnalyzerApp";
+import type { AnalysisMeta } from "@/types";
 import { Calculator, DollarSign } from "lucide-react";
 
 interface CommissionCalculatorProps {

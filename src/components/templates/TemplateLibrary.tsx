@@ -18,7 +18,7 @@ import {
   type LeaseTemplate,
   applyTemplate,
 } from "@/lib/templates";
-import type { AnalysisMeta } from "../LeaseAnalyzerApp";
+import type { AnalysisMeta } from "@/types";
 
 interface TemplateLibraryProps {
   onSelectTemplate: (template: LeaseTemplate) => void;

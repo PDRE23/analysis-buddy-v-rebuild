@@ -3,7 +3,7 @@
  */
 
 import type { Deal, DealStage, DealPriority } from "./types/deal";
-import type { AnalysisMeta } from "@/components/LeaseAnalyzerApp";
+import type { AnalysisMeta } from "@/types";
 
 export interface DealFilter {
   id: string;

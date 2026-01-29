@@ -2,8 +2,8 @@
 
 import React, { useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import type { AnnualLine, AnalysisMeta } from "@/components/LeaseAnalyzerApp";
-import { npv } from "@/components/LeaseAnalyzerApp";
+import type { AnnualLine, AnalysisMeta } from "@/types";
+import { npv } from "@/lib/calculations/metrics-engine";
 import { calculateCommission } from "@/lib/commission";
 
 interface DetailedCashflowTableProps {

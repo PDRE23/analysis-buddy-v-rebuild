@@ -9,7 +9,7 @@ import React, { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { getShareableLink, validateShareableLinkPassword, recordShareableView } from "@/lib/sharing";
 import { storage } from "@/lib/storage";
-import type { AnalysisMeta } from "@/components/LeaseAnalyzerApp";
+import type { AnalysisMeta } from "@/types";
 import { PresentationMode } from "@/components/presentation/PresentationMode";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";

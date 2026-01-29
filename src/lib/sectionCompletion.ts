@@ -2,7 +2,7 @@
  * Section completion utilities
  */
 
-import { AnalysisMeta } from '@/components/LeaseAnalyzerApp';
+import type { AnalysisMeta } from '@/types';
 import { ValidationError } from './validation';
 import { SectionStatus } from '@/components/ui/section-indicator';
 
@@ -66,6 +66,12 @@ function getNestedValue(obj: any, path: string): any {
  * Get all section statuses for an analysis
  */
 export function getAllSectionStatuses(data: AnalysisMeta, errors: ValidationError[]): SectionStatus[] {
+  const hasBaseYearError = errors.some(error => error.field === 'base_year');
+  const leaseTermFields =
+    data.lease_type === 'FS' && (data.base_year !== undefined || hasBaseYearError)
+      ? ['base_year']
+      : [];
+
   const sections = [
     {
       name: 'Basic Information',
@@ -77,7 +83,7 @@ export function getAllSectionStatuses(data: AnalysisMeta, errors: ValidationErro
     },
     {
       name: 'Lease Terms',
-      fields: ['base_year']
+      fields: leaseTermFields
     },
     {
       name: 'Operating Expenses',

@@ -10,7 +10,7 @@ import { ProspectsApp } from "./prospects/ProspectsApp";
 import { CommandPalette } from "./ui/command-palette";
 import { Kanban, FileText, StickyNote, Settings as SettingsIcon, Phone } from "lucide-react";
 import type { Deal } from "@/lib/types/deal";
-import type { AnalysisMeta } from "./LeaseAnalyzerApp";
+import type { AnalysisMeta } from "@/types";
 import type { TeamNote } from "@/lib/types/teamNotes";
 import type { Prospect } from "@/lib/types/prospect";
 import { loadTeamNotes } from "@/lib/teamNotesStorage";

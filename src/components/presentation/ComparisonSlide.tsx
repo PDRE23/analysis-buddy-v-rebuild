@@ -8,8 +8,8 @@
 import React from "react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import type { Proposal } from "../LeaseAnalyzerApp";
-import type { AnalysisMeta } from "../LeaseAnalyzerApp";
+import type { Proposal } from "@/types";
+import type { AnalysisMeta } from "@/types";
 import type { PresentationSlide } from "@/lib/presentationGenerator";
 import { TrendingUp, TrendingDown, Minus } from "lucide-react";
 

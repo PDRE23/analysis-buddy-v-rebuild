@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { nanoid } from "nanoid";
 import type { Deal, DealStage } from "@/lib/types/deal";
-import type { AnalysisMeta } from "../LeaseAnalyzerApp";
+import type { AnalysisMeta } from "@/types";
 import { ensureDemoDeals } from "@/lib/demoDeals";
 import { linkAnalysisToDeal } from "@/lib/dealAnalysisSync";
 import { dealStorage } from "@/lib/dealStorage";

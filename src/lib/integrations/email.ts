@@ -5,7 +5,7 @@
 
 import { nanoid } from "nanoid";
 import type { Deal } from "../types/deal";
-import type { AnalysisMeta } from "../../components/LeaseAnalyzerApp";
+import type { AnalysisMeta } from "@/types";
 
 export type EmailProvider = "gmail" | "outlook";
 

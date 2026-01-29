@@ -3,7 +3,7 @@
  * Wraps multiple analyses into a deal with stage tracking
  */
 
-import type { AnalysisMeta } from "@/components/LeaseAnalyzerApp";
+import type { AnalysisMeta } from "@/types";
 import type { CommissionStructure } from "@/lib/commission";
 
 export type DealStage = 

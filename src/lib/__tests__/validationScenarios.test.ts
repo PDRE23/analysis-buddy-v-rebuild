@@ -2,7 +2,7 @@
  * Test validation scenarios for Step 2 implementation
  */
 
-import { AnalysisMeta } from '@/components/LeaseAnalyzerApp';
+import type { AnalysisMeta } from '@/types';
 import { validateAnalysisMeta, getSmartValidationSummary } from '../analysisValidation';
 import { getAllSectionStatuses, getOverallCompletionStatus } from '../sectionCompletion';
 import { getDerivedRentStartDate } from '../utils';

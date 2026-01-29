@@ -3584,6 +3584,15 @@ function ProposalTab({ a, onSave }: { a: AnalysisMeta; onSave: (patch: AnalysisM
               placeholder="Enter client name"
             />
             <ValidatedInput
+              label="Tenant Name"
+              value={local.tenant_name ?? ""}
+              onChange={(e) => updateField("tenant_name", e.currentTarget.value)}
+              onBlur={() => handleBlur("tenant_name")}
+              error={getFieldError("tenant_name")}
+              showError={shouldShowFieldError("tenant_name")}
+              placeholder="Enter tenant name"
+            />
+            <ValidatedInput
               label="Market"
               value={local.market}
               onChange={(e) => updateField('market', e.currentTarget.value)}
@@ -3709,6 +3718,21 @@ function ProposalTab({ a, onSave }: { a: AnalysisMeta; onSave: (patch: AnalysisM
                   placeholder="0"
                 />
               </div>
+              {(() => {
+                const abatementMonths = getAbatementMonths(local.concessions);
+                const includeAbatement = local.lease_term?.include_abatement_in_term ?? false;
+                if (!includeAbatement || abatementMonths <= 0) return null;
+                const baseYears = local.lease_term?.years || 0;
+                const baseMonths = local.lease_term?.months || 0;
+                const totalMonths = baseYears * 12 + baseMonths + abatementMonths;
+                const adjustedYears = Math.floor(totalMonths / 12);
+                const adjustedMonths = totalMonths % 12;
+                return (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Adjusted term: {adjustedYears} years {adjustedMonths} months incl. {abatementMonths} months free rent
+                  </p>
+                );
+              })()}
             </div>
           </div>
           
@@ -3897,18 +3921,34 @@ function ProposalTab({ a, onSave }: { a: AnalysisMeta; onSave: (patch: AnalysisM
                 value={local.concessions.abatement_type || "at_commencement"}
                 onChange={(e) => {
                   const abatementType = e.currentTarget.value as "at_commencement" | "custom";
-                  if (abatementType === "at_commencement") {
-                    // Clear custom periods when switching to at_commencement
-                    setConcessions({ 
-                      abatement_type: abatementType,
-                      abatement_periods: undefined 
-                    });
-                  } else {
-                    // Initialize with empty periods array when switching to custom
-                    setConcessions({ 
-                      abatement_type: abatementType,
-                      abatement_periods: local.concessions.abatement_periods || []
-                    });
+                  const concessionsPatch =
+                    abatementType === "at_commencement"
+                      ? {
+                          // Clear custom periods when switching to at_commencement
+                          abatement_type: abatementType,
+                          abatement_periods: undefined,
+                        }
+                      : {
+                          // Initialize with empty periods array when switching to custom
+                          abatement_type: abatementType,
+                          abatement_periods: local.concessions.abatement_periods || [],
+                        };
+
+                  setConcessions(concessionsPatch);
+
+                  // Recalculate expiration if lease term exists
+                  if (local.lease_term && local.key_dates.commencement) {
+                    const updatedConcessions = { ...local.concessions, ...concessionsPatch };
+                    const abatementMonths = getAbatementMonths(updatedConcessions);
+                    const includeAbatement = local.lease_term.include_abatement_in_term ?? false;
+                    const expiration = calculateExpiration(
+                      local.key_dates.commencement,
+                      local.lease_term.years,
+                      local.lease_term.months,
+                      includeAbatement,
+                      abatementMonths
+                    );
+                    setKeyDates({ expiration });
                   }
                 }}
                 placeholder="Select abatement type"

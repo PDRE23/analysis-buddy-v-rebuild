@@ -4,7 +4,7 @@
  */
 
 import type { Deal } from "./types/deal";
-import type { AnalysisMeta } from "../components/LeaseAnalyzerApp";
+import type { AnalysisMeta } from "@/types";
 import type { TeamNote } from "./types/teamNotes";
 
 const OFFLINE_STORAGE_KEY = "offline-cache";

@@ -2,7 +2,7 @@
 
 import React, { useState, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import type { AnalysisMeta } from "../LeaseAnalyzerApp";
+import type { AnalysisMeta } from "@/types";
 import type { NERAnalysis } from "@/lib/types/ner";
 import { performNERAnalysis } from "@/lib/nerCalculations";
 import { NERSummary } from "./NERSummary";

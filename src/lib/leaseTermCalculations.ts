@@ -3,7 +3,7 @@
  * Ensures consistency across all components that calculate lease terms
  */
 
-import type { AnalysisMeta } from "@/components/LeaseAnalyzerApp";
+import type { AnalysisMeta } from "@/types";
 
 /**
  * Calculate lease term in years (decimal) from dates or lease_term

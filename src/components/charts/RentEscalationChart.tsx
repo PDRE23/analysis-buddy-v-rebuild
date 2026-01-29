@@ -21,7 +21,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Download } from "lucide-react";
-import type { AnnualLine } from "../LeaseAnalyzerApp";
+import type { AnnualLine } from "@/types";
 
 interface RentEscalationChartProps {
   cashflow: AnnualLine[];

@@ -10,7 +10,7 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Building2, MapPin, Calendar, DollarSign, TrendingUp, Gift } from "lucide-react";
 import type { PresentationSlide as SlideData } from "@/lib/presentationGenerator";
-import type { AnnualLine } from "../LeaseAnalyzerApp";
+import type { AnnualLine } from "@/types";
 import { cn } from "@/lib/utils";
 
 interface PresentationSlideProps {

@@ -2,7 +2,7 @@
  * Commission calculation utilities for commercial real estate deals
  */
 
-import type { AnalysisMeta } from "@/components/LeaseAnalyzerApp";
+import type { AnalysisMeta } from "@/types";
 
 export interface CommissionStructure {
   yearOneBrokerage: number; // % of year 1 base rent

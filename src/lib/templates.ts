@@ -3,7 +3,7 @@
  * Template library and scenario management
  */
 
-import type { AnalysisMeta } from "../components/LeaseAnalyzerApp";
+import type { AnalysisMeta } from "@/types";
 import { nanoid } from "nanoid";
 
 export type TemplateCategory = 

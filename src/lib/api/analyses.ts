@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { AnalysisMeta } from "@/components/LeaseAnalyzerApp";
+import type { AnalysisMeta } from "@/types";
 // import { withTimeout, isNetworkError } from "@/lib/supabase/timeout";
 
 // Supabase disabled - all functions return empty/void to force local storage fallback

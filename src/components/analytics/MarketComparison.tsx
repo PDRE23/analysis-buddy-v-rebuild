@@ -16,7 +16,7 @@ import {
   calculateCompetitivenessScore,
   type ComparableProperty,
 } from "@/lib/marketData";
-import type { AnalysisMeta } from "../LeaseAnalyzerApp";
+import type { AnalysisMeta } from "@/types";
 import { TrendingUp, TrendingDown, Target } from "lucide-react";
 import { getFreeRentMonths } from "@/lib/utils";
 

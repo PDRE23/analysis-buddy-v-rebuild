@@ -4,7 +4,7 @@
  */
 
 import type { Deal } from "../types/deal";
-import type { AnalysisMeta } from "../../components/LeaseAnalyzerApp";
+import type { AnalysisMeta } from "@/types";
 
 export type CRMProvider = "salesforce" | "hubspot" | "generic";
 

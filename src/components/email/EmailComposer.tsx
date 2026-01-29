@@ -21,7 +21,7 @@ import {
   type EmailTemplate,
 } from "@/lib/integrations/email";
 import type { Deal } from "@/lib/types/deal";
-import type { AnalysisMeta } from "../LeaseAnalyzerApp";
+import type { AnalysisMeta } from "@/types";
 
 interface EmailComposerProps {
   deal?: Deal;

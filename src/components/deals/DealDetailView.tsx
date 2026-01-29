@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { NotesPanel } from "@/components/ui/notes-panel";
 import type { Deal, DealStage, Note } from "@/lib/types/deal";
-import type { AnalysisMeta } from "../LeaseAnalyzerApp";
+import type { AnalysisMeta } from "@/types";
 import { 
   getStageColor, 
   getPriorityColor, 

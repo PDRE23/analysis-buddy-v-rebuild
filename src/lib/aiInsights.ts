@@ -4,7 +4,7 @@
  */
 
 import type { Deal } from "./types/deal";
-import type { AnalysisMeta } from "../components/LeaseAnalyzerApp";
+import type { AnalysisMeta } from "@/types";
 import { daysSinceUpdate } from "./types/deal";
 import { getDerivedRentStartDate, getFreeRentMonths } from "./utils";
 
@@ -290,7 +290,7 @@ export function detectMissingInformation(analysis: AnalysisMeta): MissingInforma
     alerts.push({
       field: "tenant_name",
       severity: "error",
-      message: "Tenant name is required",
+      message: "Tenant Name is required",
     });
   }
 

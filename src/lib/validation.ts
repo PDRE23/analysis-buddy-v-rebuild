@@ -2,7 +2,7 @@
  * Form validation utilities for Lease Analyzer
  */
 
-import type { AnalysisMeta } from "@/components/LeaseAnalyzerApp";
+import type { AnalysisMeta } from "@/types";
 import { getDerivedRentStartDate } from "./utils";
 
 export interface ValidationError {
@@ -465,7 +465,7 @@ export const smartValidateAnalysisMeta = (meta: unknown): ValidationResult => {
   if (!(meta as any)?.tenant_name?.trim()) {
     errors.push({
       field: 'tenant_name',
-      message: 'Tenant name is required',
+      message: 'Tenant Name is required',
       type: 'required',
       severity: 'error'
     });

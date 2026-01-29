@@ -2,7 +2,7 @@
  * Validation rules for AnalysisMeta
  */
 
-import { AnalysisMeta } from '@/components/LeaseAnalyzerApp';
+import type { AnalysisMeta } from '@/types';
 import { getDerivedRentStartDate } from './utils';
 import { 
   ValidationError, 
@@ -37,7 +37,7 @@ export const validateAnalysisMeta = (meta: AnalysisMeta): ValidationError[] => {
   if (!meta.tenant_name?.trim()) {
     errors.push({
       field: 'tenant_name',
-      message: 'Tenant name is required',
+      message: 'Tenant Name is required',
       type: 'required',
       severity: 'error'
     });
@@ -240,24 +240,15 @@ export const validateAnalysisMeta = (meta: AnalysisMeta): ValidationError[] => {
   errors.push(...validateDiscountRate(meta.cashflow_settings.discount_rate));
 
   // Validate base year for FS leases
-  if (meta.lease_type === 'FS') {
-    if (!meta.base_year) {
+  if (meta.lease_type === 'FS' && meta.base_year !== undefined) {
+    const commencementYear = new Date(meta.key_dates.commencement).getFullYear();
+    if (meta.base_year < commencementYear) {
       errors.push({
         field: 'base_year',
-        message: 'Base year is optional for FS leases',
+        message: 'Base year cannot be before commencement date',
         type: 'business',
-        severity: 'warning'
+        severity: 'error'
       });
-    } else {
-      const commencementYear = new Date(meta.key_dates.commencement).getFullYear();
-      if (meta.base_year < commencementYear) {
-        errors.push({
-          field: 'base_year',
-          message: 'Base year cannot be before commencement date',
-          type: 'business',
-          severity: 'error'
-        });
-      }
     }
   }
 

@@ -19,7 +19,7 @@ import {
   type CalendarEvent,
 } from "@/lib/integrations/calendar";
 import type { Deal } from "@/lib/types/deal";
-import type { AnalysisMeta } from "../LeaseAnalyzerApp";
+import type { AnalysisMeta } from "@/types";
 
 interface EventCreatorProps {
   deal?: Deal;
