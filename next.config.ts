@@ -12,10 +12,6 @@ const nextConfig: NextConfig = {
     // Removed esmExternals: "loose" - Next.js recommends not modifying this
   },
   modularizeImports: {
-    "lucide-react": {
-      transform: "lucide-react/dist/esm/icons/{{member}}",
-      preventFullImport: true,
-    },
     "date-fns": {
       transform: "date-fns/{{member}}",
       preventFullImport: true,
