@@ -161,6 +161,9 @@ export interface AnalysisMeta extends Record<string, unknown> {
     // New escalation configuration
     escalation_type?: "fixed" | "custom";
     escalation_periods?: OpExEscalationPeriod[]; // For "custom" mode
+    // Manual pass-through override for FS leases
+    use_manual_pass_through?: boolean;
+    manual_pass_through_psf?: number;
   };
   rent_schedule: RentRow[];
   // Rent escalation configuration
@@ -490,6 +493,10 @@ export function buildAnnualCashflow(a: AnalysisMeta): AnnualLine[] {
     baseOp = a.operating.est_op_ex_psf ?? 0;
   }
   
+  const useManualPassThrough =
+    a.lease_type === "FS" &&
+    a.operating.use_manual_pass_through &&
+    a.operating.manual_pass_through_psf !== undefined;
   const opExEscalationType = a.operating.escalation_type || "fixed";
   const method = a.operating.escalation_method ?? "fixed"; // Keep for backward compatibility
   const commencementYear = commencement.getFullYear();
@@ -499,41 +506,51 @@ export function buildAnnualCashflow(a: AnalysisMeta): AnnualLine[] {
     opExEscalationType === "custom" && a.operating.escalation_periods
       ? buildCustomEscalationLookup(baseOp, termPeriods, a.operating.escalation_periods)
       : undefined;
+  const manualBase = a.operating.manual_pass_through_psf ?? 0;
+  const manualOpExLookup =
+    useManualPassThrough && opExEscalationType === "custom" && a.operating.escalation_periods
+      ? buildCustomEscalationLookup(manualBase, termPeriods, a.operating.escalation_periods)
+      : undefined;
+
+  const getEscalatedOp = (base: number, idx: number, lookup?: CustomEscalationLookup): number => {
+    if (opExEscalationType === "fixed") {
+      const value = a.operating.escalation_value ?? 0;
+      const cap = a.operating.escalation_cap;
+      return escalate(base, idx, method, value, cap);
+    }
+    if (opExEscalationType === "custom" && a.operating.escalation_periods && lookup) {
+      const periodIndex = lookup.termYearToPeriodIndex.get(idx);
+      if (periodIndex === undefined || lookup.periodFirstTermYear[periodIndex] === undefined) {
+        return base;
+      }
+      const escalationRate = lookup.sortedPeriods[periodIndex].escalation_percentage;
+      const yearsSincePeriodStart = idx - (lookup.periodFirstTermYear[periodIndex] as number);
+      const baseAtStart = lookup.periodBaseAtStart[periodIndex];
+      let escalated = baseAtStart * Math.pow(1 + escalationRate, yearsSincePeriodStart);
+      if (a.operating.escalation_cap) {
+        const maxEscalated = baseAtStart * Math.pow(1 + a.operating.escalation_cap, yearsSincePeriodStart);
+        escalated = Math.min(escalated, maxEscalated);
+      }
+      return escalated;
+    }
+    const value = a.operating.escalation_value ?? 0;
+    const cap = a.operating.escalation_cap;
+    return escalate(base, idx, method, value, cap);
+  };
   const escalatedOpByTermIndex: number[] = new Array(termPeriods.length).fill(baseOp);
 
   for (const period of termPeriods) {
-    let escalatedOp: number;
     const idx = period.index;
-
-    if (opExEscalationType === "fixed") {
-      // Fixed escalation: use escalation_value
-      const value = a.operating.escalation_value ?? 0;
-      const cap = a.operating.escalation_cap;
-      escalatedOp = escalate(baseOp, idx, method, value, cap);
-    } else if (opExEscalationType === "custom" && a.operating.escalation_periods && opExLookup) {
-      const periodIndex = opExLookup.termYearToPeriodIndex.get(idx);
-      if (periodIndex === undefined || opExLookup.periodFirstTermYear[periodIndex] === undefined) {
-        escalatedOp = baseOp;
-      } else {
-        const escalationRate = opExLookup.sortedPeriods[periodIndex].escalation_percentage;
-        const yearsSincePeriodStart = idx - (opExLookup.periodFirstTermYear[periodIndex] as number);
-        const baseAtStart = opExLookup.periodBaseAtStart[periodIndex];
-        escalatedOp = baseAtStart * Math.pow(1 + escalationRate, yearsSincePeriodStart);
-        if (a.operating.escalation_cap) {
-          const maxEscalated = baseAtStart * Math.pow(1 + a.operating.escalation_cap, yearsSincePeriodStart);
-          escalatedOp = Math.min(escalatedOp, maxEscalated);
-        }
-      }
-    } else {
-      // Fallback: use old escalation_method structure
-      const value = a.operating.escalation_value ?? 0;
-      const cap = a.operating.escalation_cap;
-      escalatedOp = escalate(baseOp, idx, method, value, cap);
-    }
-
-    escalatedOpByTermIndex[idx] = escalatedOp;
+    const escalatedOp = getEscalatedOp(baseOp, idx, opExLookup);
+    const manualEscalated = useManualPassThrough ? getEscalatedOp(manualBase, idx, manualOpExLookup) : undefined;
+    escalatedOpByTermIndex[idx] = useManualPassThrough ? (manualEscalated ?? baseOp) : escalatedOp;
 
     if (a.lease_type === "FS") {
+      if (useManualPassThrough) {
+        const passthrough = (manualEscalated ?? 0) * rsf;
+        addToIndex(idx, "operating", passthrough);
+        continue;
+      }
       let baseYearOp: number;
       if (opExEscalationType === "fixed") {
         const value = a.operating.escalation_value ?? 0;
@@ -4405,14 +4422,37 @@ function ProposalTab({
               {local.lease_type === "FS" ? "Operating Expense Pass-Throughs" : "Operating Expenses"}
             </h3>
             <div className="space-y-3">
+              {local.lease_type === "FS" && (
+                <div className="flex items-center gap-2 border rounded-lg p-3 bg-muted/50">
+                  <input
+                    type="checkbox"
+                    checked={local.operating.use_manual_pass_through || false}
+                    onChange={(e) => setOperating({ use_manual_pass_through: e.target.checked })}
+                    className="rounded"
+                  />
+                  <Label className="text-sm">Use manual pass-through $/SF (flat with optional escalation)</Label>
+                </div>
+              )}
+              {local.lease_type === "FS" && local.operating.use_manual_pass_through && (
+                <CurrencyInput
+                  label="Manual Pass-Through $/SF"
+                  value={local.operating.manual_pass_through_psf}
+                  onChange={(value) => setOperating({ manual_pass_through_psf: value })}
+                  placeholder="0.00"
+                  hint="Flat pass-through per square foot; escalation settings apply below"
+                />
+              )}
               <CurrencyInput
                 label="OpEx $/SF"
                 value={local.operating.est_op_ex_psf}
                 onChange={(value) => setOperating({ est_op_ex_psf: value })}
                 placeholder="0.00"
+                disabled={local.lease_type === "FS" && local.operating.use_manual_pass_through}
                 hint={
                   local.lease_type === "FS" 
-                    ? "Base year operating expenses per square foot (tenant pays increases above this)"
+                    ? (local.operating.use_manual_pass_through
+                      ? "Base year operating expenses per square foot (ignored when manual pass-through is enabled)"
+                      : "Base year operating expenses per square foot (tenant pays increases above this)")
                     : "Estimated operating expenses per square foot"
                 }
               />
@@ -4446,14 +4486,14 @@ function ProposalTab({
               {(local.operating.escalation_type === "fixed" || !local.operating.escalation_type) ? (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   <PercentageInput
-                    label="OpEx Escalation %"
+                    label={local.lease_type === "FS" && local.operating.use_manual_pass_through ? "Pass-Through Escalation %" : "OpEx Escalation %"}
                     value={(local.operating.escalation_value ?? 0) * 100}
                     onChange={(value) => setOperating({ escalation_value: (value || 0) / 100 })}
                     placeholder="0.00"
                     hint="Annual escalation rate (fixed percentage)"
                   />
                   <PercentageInput
-                    label="OpEx Escalation Cap"
+                    label={local.lease_type === "FS" && local.operating.use_manual_pass_through ? "Pass-Through Escalation Cap" : "OpEx Escalation Cap"}
                     value={(local.operating.escalation_cap ?? 0) * 100}
                     onChange={(value) => setOperating({ escalation_cap: (value || 0) / 100 })}
                     placeholder="0.00"
@@ -4499,7 +4539,7 @@ function ProposalTab({
                     </div>
                   )}
                   <PercentageInput
-                    label="OpEx Escalation Cap"
+                    label={local.lease_type === "FS" && local.operating.use_manual_pass_through ? "Pass-Through Escalation Cap" : "OpEx Escalation Cap"}
                     value={(local.operating.escalation_cap ?? 0) * 100}
                     onChange={(value) => setOperating({ escalation_cap: (value || 0) / 100 })}
                     placeholder="0.00"

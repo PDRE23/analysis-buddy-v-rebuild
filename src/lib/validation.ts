@@ -375,6 +375,7 @@ export const getFieldDisplayName = (field: string): string => {
     'rent_start': 'Rent Start Date',
     'expiration': 'Expiration Date',
     'est_op_ex_psf': 'Operating Expenses',
+    'manual_pass_through_psf': 'Manual Pass-Through',
     'escalation_value': 'Escalation Rate',
     'ti_allowance_psf': 'TI Allowance',
     'moving_allowance': 'Moving Allowance',
@@ -394,7 +395,10 @@ export const checkBlankSections = (meta: unknown): ConfirmationRequest[] => {
 
   // Operating Expenses Section
   const operatingFields = [];
-  if (!(meta as any)?.operating?.est_op_ex_psf) operatingFields.push('Operating Expenses per SF');
+  const operating = (meta as any)?.operating;
+  const isManualPassThrough = (meta as any)?.lease_type === 'FS' && operating?.use_manual_pass_through;
+  if (!operating?.est_op_ex_psf && !isManualPassThrough) operatingFields.push('Operating Expenses per SF');
+  if (isManualPassThrough && !operating?.manual_pass_through_psf) operatingFields.push('Manual Pass-Through per SF');
   if (!(meta as any)?.operating?.escalation_value) operatingFields.push('Escalation Rate');
   
   if (operatingFields.length > 0) {

@@ -24,7 +24,7 @@ export function calculateSectionCompletion(
   const totalFields = fields.length;
   
   // Fields that should not be 0 (treat 0 as incomplete)
-  const nonZeroFields = ['rsf', 'operating.est_op_ex_psf', 'parking.monthly_rate_per_stall'];
+  const nonZeroFields = ['rsf', 'operating.est_op_ex_psf', 'operating.manual_pass_through_psf', 'parking.monthly_rate_per_stall'];
   
   for (const field of fields) {
     const value = getNestedValue(data, field);
@@ -71,6 +71,10 @@ export function getAllSectionStatuses(data: AnalysisMeta, errors: ValidationErro
     data.lease_type === 'FS' && (data.base_year !== undefined || hasBaseYearError)
       ? ['base_year']
       : [];
+  const useManualPassThrough = data.lease_type === 'FS' && data.operating.use_manual_pass_through;
+  const operatingFields = useManualPassThrough
+    ? ['operating.manual_pass_through_psf', 'operating.escalation_method', 'operating.escalation_value']
+    : ['operating.est_op_ex_psf', 'operating.escalation_method', 'operating.escalation_value'];
 
   const sections = [
     {
@@ -87,7 +91,7 @@ export function getAllSectionStatuses(data: AnalysisMeta, errors: ValidationErro
     },
     {
       name: 'Operating Expenses',
-      fields: ['operating.est_op_ex_psf', 'operating.escalation_method', 'operating.escalation_value']
+      fields: operatingFields
     },
     {
       name: 'Concessions',

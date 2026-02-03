@@ -75,6 +75,9 @@ export interface AnalysisMeta extends Record<string, unknown> {
     // New escalation configuration
     escalation_type?: "fixed" | "custom";
     escalation_periods?: OpExEscalationPeriod[]; // For "custom" mode
+    // Manual pass-through override for FS leases
+    use_manual_pass_through?: boolean;
+    manual_pass_through_psf?: number;
   };
   rent_schedule: RentRow[];
   // Rent escalation configuration

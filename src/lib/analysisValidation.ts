@@ -128,6 +128,11 @@ export const validateAnalysisMeta = (meta: AnalysisMeta): ValidationError[] => {
   if (meta.operating.est_op_ex_psf !== undefined) {
     errors.push(...validatePositiveNumber(meta.operating.est_op_ex_psf, 'Operating Expenses'));
   }
+  if (meta.operating.use_manual_pass_through) {
+    errors.push(...validatePositiveNumber(meta.operating.manual_pass_through_psf, 'Manual Pass-Through'));
+  } else if (meta.operating.manual_pass_through_psf !== undefined) {
+    errors.push(...validatePositiveNumber(meta.operating.manual_pass_through_psf, 'Manual Pass-Through'));
+  }
 
   if (meta.operating.escalation_value !== undefined) {
     errors.push(...validatePositiveNumber(meta.operating.escalation_value, 'Escalation Rate'));

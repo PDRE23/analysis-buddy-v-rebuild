@@ -329,7 +329,12 @@ export function detectMissingInformation(analysis: AnalysisMeta): MissingInforma
     });
   }
 
-  if (!analysis.operating.est_op_ex_psf || analysis.operating.est_op_ex_psf <= 0) {
+  const hasManualPassThrough =
+    analysis.lease_type === "FS" &&
+    analysis.operating.use_manual_pass_through &&
+    (analysis.operating.manual_pass_through_psf ?? 0) > 0;
+  const hasOpEx = (analysis.operating.est_op_ex_psf ?? 0) > 0;
+  if (!hasOpEx && !hasManualPassThrough) {
     alerts.push({
       field: "operating",
       severity: "warning",
