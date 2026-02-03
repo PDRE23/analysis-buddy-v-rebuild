@@ -8,6 +8,7 @@ import type { AnalysisMeta } from "@/types";
 import { dealStorage } from "./dealStorage";
 import { storage } from "./storage";
 import { getMarketSuggestions, getAllMarkets } from "./marketIntelligence";
+import { formatDateOnly, parseDateInput } from "./dateOnly";
 export { getAllMarkets } from "./marketIntelligence";
 
 /**
@@ -129,7 +130,15 @@ export interface DateSuggestions {
 }
 
 export function getDateSuggestions(commencement: string): DateSuggestions {
-  const commencementDate = new Date(commencement);
+  const commencementDate = parseDateInput(commencement);
+  if (!commencementDate) {
+    const today = new Date();
+    return {
+      rentStart: formatDateOnly(today),
+      expiration: formatDateOnly(today),
+      earlyAccess: formatDateOnly(today),
+    };
+  }
   
   // Rent start: 1 month after commencement
   const rentStart = new Date(commencementDate);
@@ -144,9 +153,9 @@ export function getDateSuggestions(commencement: string): DateSuggestions {
   earlyAccess.setDate(earlyAccess.getDate() - 30);
   
   return {
-    rentStart: rentStart.toISOString().split("T")[0],
-    expiration: expiration.toISOString().split("T")[0],
-    earlyAccess: earlyAccess.toISOString().split("T")[0],
+    rentStart: formatDateOnly(rentStart),
+    expiration: formatDateOnly(expiration),
+    earlyAccess: formatDateOnly(earlyAccess),
   };
 }
 
@@ -226,7 +235,7 @@ export function getDealSuggestions(
   const suggestions: DealSuggestions = {
     dateSuggestions: commencement 
       ? getDateSuggestions(commencement)
-      : getDateSuggestions(new Date().toISOString().split("T")[0]),
+      : getDateSuggestions(formatDateOnly(new Date())),
     suggestedMarkets: getAllMarkets(),
   };
   
@@ -264,7 +273,7 @@ export function getAnalysisSuggestions(
   const suggestions: AnalysisSuggestions = {
     dateSuggestions: commencement
       ? getDateSuggestions(commencement)
-      : getDateSuggestions(new Date().toISOString().split("T")[0]),
+      : getDateSuggestions(formatDateOnly(new Date())),
     suggestedMarkets: getAllMarkets(),
   };
   

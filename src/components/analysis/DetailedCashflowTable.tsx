@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { AnnualLine, AnalysisMeta } from "@/types";
 import { npv } from "@/lib/calculations/metrics-engine";
 import { calculateCommission } from "@/lib/commission";
+import { parseDateOnly } from "@/lib/dateOnly";
 
 interface DetailedCashflowTableProps {
   lines: AnnualLine[];
@@ -121,10 +122,10 @@ export function DetailedCashflowTable({ lines, meta }: DetailedCashflowTableProp
   }, [lines, discountRate]);
 
   // Get year start date
-  const getYearStartDate = (year: number, idx: number): string | null => {
+  const getYearStartDate = (idx: number): string | null => {
     if (!meta.key_dates?.commencement) return null;
-    const commencement = new Date(meta.key_dates.commencement);
-    if (isNaN(commencement.getTime())) return null;
+    const commencement = parseDateOnly(meta.key_dates.commencement);
+    if (!commencement) return null;
     
     const yearNum = idx + 1;
     const startDate = new Date(commencement);
@@ -162,8 +163,8 @@ export function DetailedCashflowTable({ lines, meta }: DetailedCashflowTableProp
             </thead>
             <tbody>
               {detailedData.map((row, idx) => {
-                const startDate = getYearStartDate(row.year, idx);
-                const yearLabel = startDate ? `YR ${idx + 1} (${startDate})` : `YR ${idx + 1}`;
+      const startDate = getYearStartDate(idx);
+      const yearLabel = startDate ? `YR ${row.year} (${startDate})` : `YR ${row.year}`;
                 
                 return (
                   <tr key={row.year} className="border-t hover:bg-muted/30">

@@ -22,6 +22,7 @@ import {
 } from "@/lib/integrations/calendar";
 import type { Deal } from "@/lib/types/deal";
 import type { AnalysisMeta } from "@/types";
+import { parseDateOnly } from "@/lib/dateOnly";
 
 interface CalendarViewProps {
   deals?: Deal[];
@@ -81,7 +82,7 @@ export function CalendarView({ deals, analyses, startDate, endDate }: CalendarVi
     }
 
     const date = type === "close-date" && deal.expectedCloseDate
-      ? new Date(deal.expectedCloseDate)
+      ? (parseDateOnly(deal.expectedCloseDate) || new Date())
       : new Date();
 
     const eventData = createEventForDeal(deal, type, date);

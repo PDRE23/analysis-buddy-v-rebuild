@@ -3,6 +3,7 @@
  */
 
 import type { AnalysisMeta } from "@/types";
+import { parseDateOnly } from "./dateOnly";
 
 export interface CommissionStructure {
   yearOneBrokerage: number; // % of year 1 base rent
@@ -104,8 +105,8 @@ function calculateSubsequentRent(analysis: AnalysisMeta): number {
     return 0;
   }
   
-  const commencement = new Date(analysis.key_dates.commencement);
-  const expiration = new Date(analysis.key_dates.expiration);
+  const commencement = parseDateOnly(analysis.key_dates.commencement) ?? new Date(analysis.key_dates.commencement);
+  const expiration = parseDateOnly(analysis.key_dates.expiration) ?? new Date(analysis.key_dates.expiration);
   const commencementYear = commencement.getFullYear();
   const expirationYear = expiration.getFullYear();
   
@@ -136,8 +137,8 @@ function calculateSubsequentRent(analysis: AnalysisMeta): number {
     
     // Find the rent period for this year
     for (const period of analysis.rent_schedule) {
-      const periodStart = new Date(period.period_start);
-      const periodEnd = new Date(period.period_end);
+      const periodStart = parseDateOnly(period.period_start) ?? new Date(period.period_start);
+      const periodEnd = parseDateOnly(period.period_end) ?? new Date(period.period_end);
       
       // Check if this year overlaps with the period
       if (overlapStart <= periodEnd && overlapEnd >= periodStart) {

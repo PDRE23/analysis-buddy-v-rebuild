@@ -7,6 +7,7 @@ import type { Deal } from "./types/deal";
 import type { AnalysisMeta } from "@/types";
 import { dealStorage } from "./dealStorage";
 import { storage } from "./storage";
+import { parseDateOnly } from "./dateOnly";
 
 export interface MarketData {
   market: string;
@@ -73,8 +74,9 @@ function calculateMarketStats(
     .filter(r => r > 0);
   
   const allTerms = analyses.map(a => {
-    const commencement = new Date(a.key_dates.commencement);
-    const expiration = new Date(a.key_dates.expiration);
+    const commencement = parseDateOnly(a.key_dates.commencement);
+    const expiration = parseDateOnly(a.key_dates.expiration);
+    if (!commencement || !expiration) return 0;
     return (expiration.getTime() - commencement.getTime()) / (1000 * 60 * 60 * 24 * 365.25);
   }).filter(t => t > 0);
   

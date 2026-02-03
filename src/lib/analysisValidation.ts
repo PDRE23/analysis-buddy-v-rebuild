@@ -17,6 +17,7 @@ import {
   validateLeaseTermConsistency,
   smartValidateAnalysisMeta
 } from './validation';
+import { parseDateOnly } from "./dateOnly";
 
 /**
  * Validate AnalysisMeta object
@@ -95,9 +96,9 @@ export const validateAnalysisMeta = (meta: AnalysisMeta): ValidationError[] => {
 
   // Validate date relationships
   if (meta.key_dates.commencement && derivedRentStart) {
-    const commencement = new Date(meta.key_dates.commencement);
-    const rentStart = new Date(derivedRentStart);
-    if (commencement > rentStart) {
+    const commencement = parseDateOnly(meta.key_dates.commencement);
+    const rentStart = parseDateOnly(derivedRentStart);
+    if (commencement && rentStart && commencement > rentStart) {
       errors.push({
         field: 'rent_start',
         message: 'Rent Start Date must be on or after Commencement Date',
@@ -241,7 +242,8 @@ export const validateAnalysisMeta = (meta: AnalysisMeta): ValidationError[] => {
 
   // Validate base year for FS leases
   if (meta.lease_type === 'FS' && meta.base_year !== undefined) {
-    const commencementYear = new Date(meta.key_dates.commencement).getFullYear();
+    const commencementDate = parseDateOnly(meta.key_dates.commencement);
+    const commencementYear = (commencementDate ?? new Date(meta.key_dates.commencement)).getFullYear();
     if (meta.base_year < commencementYear) {
       errors.push({
         field: 'base_year',

@@ -37,7 +37,7 @@ export function RentEscalationChart({
   onExport,
 }: RentEscalationChartProps) {
   const chartData = cashflow.map((line) => ({
-    year: line.year.toString(),
+    year: line.year,
     baseRent: line.base_rent,
     operating: Math.abs(line.operating || 0),
     parking: line.parking || 0,
@@ -56,9 +56,10 @@ export function RentEscalationChart({
   const CustomTooltip = ({ active, payload, label }: any) => {
     if (active && payload && payload.length) {
       const total = payload.reduce((sum: number, entry: any) => sum + (entry.value || 0), 0);
+      const labelText = typeof label === "string" && label.startsWith("YR") ? label : `YR ${label}`;
       return (
         <div className="bg-white border border-gray-200 rounded-lg shadow-xl p-4 min-w-[200px]">
-          <p className="font-semibold mb-3 text-base">{`Year ${label}`}</p>
+          <p className="font-semibold mb-3 text-base">{labelText}</p>
           <div className="space-y-2">
             {payload.map((entry: any, index: number) => (
               <div key={index} className="flex items-center justify-between gap-4">
@@ -123,7 +124,8 @@ export function RentEscalationChart({
               dataKey="year"
               stroke="#6b7280"
               tick={{ fontSize: 12 }}
-              label={{ value: "Year", position: "insideBottom", offset: -5 }}
+              tickFormatter={(value) => `YR ${value}`}
+              label={{ value: "Term Year", position: "insideBottom", offset: -5 }}
             />
             <YAxis
               stroke="#6b7280"

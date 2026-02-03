@@ -3,6 +3,8 @@
  * Automated backups and data recovery
  */
 
+import { formatDateOnly } from "./dateOnly";
+
 /**
  * Create backup of all data
  */
@@ -42,7 +44,7 @@ export function exportBackup(): void {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = `analysis-buddy-backup-${new Date().toISOString().split("T")[0]}.json`;
+  a.download = `analysis-buddy-backup-${formatDateOnly(new Date())}.json`;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);

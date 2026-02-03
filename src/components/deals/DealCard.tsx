@@ -10,6 +10,7 @@ import { Building2, MapPin, Calendar, FileText, MoreVertical, Eye, Edit, Trash2,
 import { hasDealBeenUpdatedToday, getDealsNeedingUpdates } from "@/lib/dailyTracking";
 import { calculateDealHealthScore } from "@/lib/aiInsights";
 import { InsightBadge } from "@/components/ui/insight-badge";
+import { formatDateOnlyDisplay } from "@/lib/dateOnly";
 
 interface DealCardProps {
   deal: Deal;
@@ -226,7 +227,7 @@ function DealCardComponent({
           <div className="flex items-center gap-1.5 text-xs">
             <Calendar className="h-3 w-3 text-gray-400 flex-shrink-0" />
             <span className="text-gray-600">
-              Close: {new Date(deal.expectedCloseDate).toLocaleDateString()}
+              Close: {formatDateOnlyDisplay(deal.expectedCloseDate)}
             </span>
           </div>
         )}

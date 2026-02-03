@@ -4,6 +4,7 @@
 
 import type { Deal } from "./types/deal";
 import type { DailyUpdate, DailyUpdateConfig, DealUpdateStatus } from "./types/tracking";
+import { formatDateOnly, parseDateOnly } from "./dateOnly";
 
 const DAILY_UPDATES_KEY = 'bsquared-daily-updates';
 const CONFIG_KEY = 'bsquared-daily-tracking-config';
@@ -34,8 +35,7 @@ function isLocalStorageAvailable(): boolean {
  * Get today's date as YYYY-MM-DD string
  */
 function getTodayDateString(): string {
-  const today = new Date();
-  return today.toISOString().split('T')[0];
+  return formatDateOnly(new Date());
 }
 
 /**
@@ -49,7 +49,8 @@ function isToday(dateString: string): boolean {
  * Check if date is weekend
  */
 function isWeekend(dateString: string): boolean {
-  const date = new Date(dateString);
+  const date = parseDateOnly(dateString);
+  if (!date) return false;
   const day = date.getDay();
   return day === 0 || day === 6; // Sunday or Saturday
 }

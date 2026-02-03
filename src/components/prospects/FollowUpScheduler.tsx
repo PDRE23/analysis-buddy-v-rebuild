@@ -11,6 +11,7 @@ import type { Prospect, FollowUpType } from "@/lib/types/prospect";
 import { ALL_FOLLOWUP_TYPES } from "@/lib/types/prospect";
 import { nanoid } from "nanoid";
 import { X } from "lucide-react";
+import { formatDateOnly } from "@/lib/dateOnly";
 
 interface FollowUpSchedulerProps {
   prospect: Prospect;
@@ -130,7 +131,7 @@ export function FollowUpScheduler({
                 value={formData.scheduledDate}
                 onChange={(e) => handleChange("scheduledDate", e.target.value)}
                 className={errors.scheduledDate ? "border-red-500" : ""}
-                min={new Date().toISOString().split('T')[0]}
+                min={formatDateOnly(new Date())}
               />
               {errors.scheduledDate && (
                 <p className="text-sm text-red-500 mt-1">{errors.scheduledDate}</p>

@@ -1,6 +1,7 @@
 import { clsx, type ClassValue } from "clsx"
 import { twMerge } from "tailwind-merge"
 import type { AnalysisMeta } from "@/types/analysis"
+import { formatDateOnly, parseDateOnly } from "./dateOnly"
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
@@ -29,13 +30,13 @@ export function getDerivedRentStartDate(analysis: AnalysisMeta): string | undefi
     return analysis.key_dates.rent_start;
   }
   if (!analysis.key_dates?.commencement) return undefined;
-  const commencementDate = new Date(analysis.key_dates.commencement);
-  if (isNaN(commencementDate.getTime())) return undefined;
+  const commencementDate = parseDateOnly(analysis.key_dates.commencement);
+  if (!commencementDate) return undefined;
   const freeRentMonths = getFreeRentMonths(analysis.concessions);
   if (freeRentMonths <= 0) {
     return analysis.key_dates.commencement;
   }
   const rentStartDate = new Date(commencementDate);
   rentStartDate.setMonth(rentStartDate.getMonth() + freeRentMonths);
-  return rentStartDate.toISOString().split("T")[0];
+  return formatDateOnly(rentStartDate);
 }

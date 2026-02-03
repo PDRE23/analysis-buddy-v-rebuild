@@ -4,6 +4,7 @@
  */
 
 import type { Prospect } from "./types/prospect";
+import { parseDateOnly } from "./dateOnly";
 
 const PROSPECTS_STORAGE_KEY_BASE = 'lease-analyzer-prospects';
 const PROSPECTS_BACKUP_KEY_BASE = 'lease-analyzer-prospects-backup';
@@ -291,7 +292,7 @@ export const prospectStorage = {
     
     const upcomingFollowUps = prospects.filter(p => {
       if (!p.nextFollowUpDate) return false;
-      const followUpDate = new Date(p.nextFollowUpDate);
+      const followUpDate = parseDateOnly(p.nextFollowUpDate) ?? new Date(p.nextFollowUpDate);
       const today = new Date();
       today.setHours(0, 0, 0, 0);
       return followUpDate >= today;

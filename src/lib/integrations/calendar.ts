@@ -7,6 +7,7 @@ import type { Deal } from "../types/deal";
 import type { AnalysisMeta } from "@/types";
 import type { Reminder } from "../reminders";
 import { getDerivedRentStartDate } from "../utils";
+import { parseDateInput, parseDateOnly } from "../dateOnly";
 
 export type CalendarProvider = "google" | "outlook" | "ical";
 
@@ -146,19 +147,19 @@ export function createEventForAnalysis(
 
   switch (type) {
     case "commencement":
-      date = new Date(analysis.key_dates.commencement);
+      date = parseDateOnly(analysis.key_dates.commencement) || null;
       break;
     case "rent-start":
       // rent_start is derived from commencement + free rent months
       if (analysis.key_dates.commencement) {
         const derivedRentStart = getDerivedRentStartDate(analysis);
         date = derivedRentStart
-          ? new Date(derivedRentStart)
-          : new Date(analysis.key_dates.commencement);
+          ? parseDateOnly(derivedRentStart) || null
+          : parseDateOnly(analysis.key_dates.commencement) || null;
       }
       break;
     case "expiration":
-      date = new Date(analysis.key_dates.expiration);
+      date = parseDateOnly(analysis.key_dates.expiration) || null;
       break;
   }
 
@@ -178,11 +179,12 @@ export function createEventForAnalysis(
  * Create event from reminder
  */
 export function createEventFromReminder(reminder: Reminder): Omit<CalendarEvent, "id"> {
+  const startDate = parseDateInput(reminder.dueDate) || new Date(reminder.dueDate);
   return {
     title: reminder.title,
     description: reminder.description,
-    start: new Date(reminder.dueDate),
-    end: new Date(new Date(reminder.dueDate).getTime() + 60 * 60 * 1000),
+    start: startDate,
+    end: new Date(startDate.getTime() + 60 * 60 * 1000),
     reminderId: reminder.id,
     allDay: false,
   };

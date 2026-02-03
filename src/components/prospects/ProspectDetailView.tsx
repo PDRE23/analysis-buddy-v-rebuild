@@ -9,6 +9,7 @@ import { getStatusColor, getPriorityColor, formatPhoneNumber, isFollowUpOverdue 
 import { ArrowLeft, Edit, Phone, Mail, Calendar, CheckCircle2, Clock, ArrowRight } from "lucide-react";
 import { FollowUpScheduler } from "./FollowUpScheduler";
 import { nanoid } from "nanoid";
+import { formatDateOnlyDisplay, parseDateInput } from "@/lib/dateOnly";
 
 interface ProspectDetailViewProps {
   prospect: Prospect;
@@ -244,7 +245,7 @@ export function ProspectDetailView({
                     <div>
                       <div className="text-sm text-gray-600">Next Follow-up</div>
                       <div className={`font-medium ${isFollowUpOverdue(prospect) ? "text-red-600" : ""}`}>
-                        {new Date(prospect.nextFollowUpDate).toLocaleDateString()}
+                        {formatDateOnlyDisplay(prospect.nextFollowUpDate)}
                         {isFollowUpOverdue(prospect) && " (Overdue)"}
                       </div>
                     </div>
@@ -253,7 +254,7 @@ export function ProspectDetailView({
                     <div>
                       <div className="text-sm text-gray-600">Last Contact</div>
                       <div className="font-medium">
-                        {new Date(prospect.lastContactDate).toLocaleDateString()}
+                        {formatDateOnlyDisplay(prospect.lastContactDate)}
                       </div>
                     </div>
                   )}
@@ -312,7 +313,8 @@ export function ProspectDetailView({
             ) : (
               <div className="space-y-3">
                 {prospect.followUps.map((followUp) => {
-                  const isOverdue = !followUp.completed && new Date(followUp.scheduledDate) < new Date();
+                  const scheduledDate = parseDateInput(followUp.scheduledDate) ?? new Date(followUp.scheduledDate);
+                  const isOverdue = !followUp.completed && scheduledDate < new Date();
                   
                   return (
                     <Card
@@ -331,11 +333,11 @@ export function ProspectDetailView({
                               <div>
                                 <div className="font-semibold capitalize">{followUp.type}</div>
                                 <div className="text-sm text-gray-600">
-                                  Scheduled: {new Date(followUp.scheduledDate).toLocaleString()}
+                                  Scheduled: {formatDateOnlyDisplay(followUp.scheduledDate)}
                                 </div>
                                 {followUp.completed && followUp.completedDate && (
                                   <div className="text-sm text-green-600">
-                                    Completed: {new Date(followUp.completedDate).toLocaleString()}
+                                    Completed: {formatDateOnlyDisplay(followUp.completedDate)}
                                   </div>
                                 )}
                                 {isOverdue && !followUp.completed && (

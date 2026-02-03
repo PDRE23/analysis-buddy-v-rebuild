@@ -51,7 +51,7 @@ export function generateCashflowChartSVG(
           font-size="12" 
           fill="#666"
         >
-          ${line.year}
+          YR ${line.year}
         </text>
         <text 
           x="${x + barWidth / 2}" 

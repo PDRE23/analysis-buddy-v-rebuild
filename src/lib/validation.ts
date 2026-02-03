@@ -4,6 +4,7 @@
 
 import type { AnalysisMeta } from "@/types";
 import { getDerivedRentStartDate } from "./utils";
+import { parseDateInput, parseDateOnly } from "./dateOnly";
 
 export interface ValidationError {
   field: string;
@@ -41,8 +42,8 @@ export const validateDate = (value: string | undefined, fieldName: string): Vali
     return errors;
   }
 
-  const date = new Date(value);
-  if (isNaN(date.getTime())) {
+  const date = parseDateInput(value);
+  if (!date || isNaN(date.getTime())) {
     errors.push({
       field: fieldName,
       message: `${fieldName} must be a valid date`,
@@ -129,8 +130,9 @@ export const validateDateRange = (
   
   if (!startDate || !endDate) return errors; // Let required validation handle missing dates
   
-  const start = new Date(startDate);
-  const end = new Date(endDate);
+  const start = parseDateInput(startDate);
+  const end = parseDateInput(endDate);
+  if (!start || !end) return errors;
   
   if (start >= end) {
     errors.push({
@@ -155,8 +157,9 @@ export const validateLeaseTerm = (
   
   if (!commencement || !expiration) return errors;
   
-  const start = new Date(commencement);
-  const end = new Date(expiration);
+  const start = parseDateOnly(commencement);
+  const end = parseDateOnly(expiration);
+  if (!start || !end) return errors;
   const yearsDiff = (end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24 * 365);
   
   if (yearsDiff < 1) {
@@ -204,7 +207,8 @@ export const validateLeaseTermConsistency = (
   const includeAbatement = meta.lease_term.include_abatement_in_term ?? false;
   
   // Calculate expected expiration (reuse calculateExpiration logic)
-  const start = new Date(meta.key_dates.commencement);
+  const start = parseDateOnly(meta.key_dates.commencement);
+  if (!start) return errors;
   const expectedExp = new Date(start);
   expectedExp.setFullYear(expectedExp.getFullYear() + meta.lease_term.years);
   expectedExp.setMonth(expectedExp.getMonth() + meta.lease_term.months);
@@ -213,11 +217,11 @@ export const validateLeaseTermConsistency = (
     expectedExp.setMonth(expectedExp.getMonth() + abatementMonths);
   }
   
-  // Set to last day of final month
-  expectedExp.setMonth(expectedExp.getMonth() + 1);
-  expectedExp.setDate(0);
+  // End date is the day before the same day-of-month
+  expectedExp.setDate(expectedExp.getDate() - 1);
   
-  const actualExp = new Date(meta.key_dates.expiration);
+  const actualExp = parseDateOnly(meta.key_dates.expiration);
+  if (!actualExp) return errors;
   
   // Allow 1 day tolerance for date calculation differences
   const diffDays = Math.abs((actualExp.getTime() - expectedExp.getTime()) / (1000 * 60 * 60 * 24));
@@ -498,9 +502,9 @@ export const smartValidateAnalysisMeta = (meta: unknown): ValidationResult => {
 
     // Validate date relationships if all dates are present
     if (analysis.key_dates.commencement && derivedRentStart) {
-      const commencement = new Date(analysis.key_dates.commencement);
-      const rentStart = new Date(derivedRentStart);
-      if (commencement > rentStart) {
+      const commencement = parseDateOnly(analysis.key_dates.commencement);
+      const rentStart = parseDateOnly(derivedRentStart);
+      if (commencement && rentStart && commencement > rentStart) {
         errors.push({
           field: 'rent_start',
           message: 'Rent Start Date must be on or after Commencement Date',

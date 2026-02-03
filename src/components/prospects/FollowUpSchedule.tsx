@@ -3,6 +3,7 @@
 import React from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { Prospect } from "@/lib/types/prospect";
+import { formatDateOnlyDisplay } from "@/lib/dateOnly";
 
 interface FollowUpScheduleProps {
   prospects: Prospect[];
@@ -37,7 +38,7 @@ export function FollowUpSchedule({ prospects, onViewProspect }: FollowUpSchedule
                 <ul className="space-y-2">
                   {upcomingFollowUps.map(prospect => (
                     <li key={prospect.id} className="text-sm">
-                      {prospect.contact.name} - {prospect.nextFollowUpDate && new Date(prospect.nextFollowUpDate).toLocaleDateString()}
+                      {prospect.contact.name} - {prospect.nextFollowUpDate && formatDateOnlyDisplay(prospect.nextFollowUpDate)}
                     </li>
                   ))}
                 </ul>

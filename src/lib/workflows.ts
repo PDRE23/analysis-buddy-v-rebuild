@@ -6,6 +6,7 @@
 import type { Deal } from "./types/deal";
 import type { AnalysisMeta } from "@/types";
 import { nanoid } from "nanoid";
+import { formatDateOnly, parseDateOnly } from "./dateOnly";
 
 /**
  * Extract structured data from email content
@@ -132,11 +133,11 @@ export function createDealFromEmail(
 export function createQuickProposal(
   deal: Deal
 ): Partial<AnalysisMeta> {
-  const today = new Date().toISOString().split("T")[0];
+  const today = formatDateOnly(new Date());
   const expiration = new Date();
   expiration.setFullYear(expiration.getFullYear() + (deal.leaseTerm / 12 || 5));
   
-  const rentStart = new Date(today);
+  const rentStart = parseDateOnly(today) || new Date();
   rentStart.setMonth(rentStart.getMonth() + 1);
   
   return {
@@ -147,8 +148,8 @@ export function createQuickProposal(
     lease_type: "FS",
     key_dates: {
       commencement: today,
-      rent_start: rentStart.toISOString().split("T")[0],
-      expiration: expiration.toISOString().split("T")[0],
+      rent_start: formatDateOnly(rentStart),
+      expiration: formatDateOnly(expiration),
     },
     operating: {},
     rent_schedule: [],
@@ -200,8 +201,8 @@ Best regards,
 ${deal.broker}`;
 
   const attachmentName = analysis
-    ? `${clientName}_${analysis.name.replace(/[^a-z0-9]/gi, "_")}_${new Date().toISOString().split("T")[0]}.${format}`
-    : `${clientName}_Deal_Summary_${new Date().toISOString().split("T")[0]}.${format}`;
+    ? `${clientName}_${analysis.name.replace(/[^a-z0-9]/gi, "_")}_${formatDateOnly(new Date())}.${format}`
+    : `${clientName}_Deal_Summary_${formatDateOnly(new Date())}.${format}`;
 
   return {
     subject,

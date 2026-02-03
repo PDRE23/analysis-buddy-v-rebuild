@@ -7,6 +7,7 @@ import type { AnalysisMeta } from '@/types/analysis';
 import type { ExportConfig } from './types';
 import type { AnalysisData, CashflowLine, ExportData } from './pdf-export';
 import { getDerivedRentStartDate } from '../utils';
+import { formatDateOnlyDisplay, parseDateOnly } from '../dateOnly';
 
 const fmtMoney = (v: number | undefined): number => v ?? 0;
 const fmtRate = (v: number | undefined): number => v ?? 0;
@@ -89,9 +90,9 @@ function addSummarySheet(workbook: ExcelJS.Workbook, data: ExportData): void {
     ['Square Footage', `${data.analysis.rsf.toLocaleString()} RSF`],
     ['Lease Type', data.analysis.lease_type],
     ['Status', data.analysis.status],
-    ['Commencement', new Date(data.analysis.key_dates.commencement).toLocaleDateString()],
-    ['Rent Start', derivedRentStart ? new Date(derivedRentStart).toLocaleDateString() : 'N/A'],
-    ['Expiration', new Date(data.analysis.key_dates.expiration).toLocaleDateString()],
+    ['Commencement', formatDateOnlyDisplay(data.analysis.key_dates.commencement, 'N/A')],
+    ['Rent Start', derivedRentStart ? formatDateOnlyDisplay(derivedRentStart, 'N/A') : 'N/A'],
+    ['Expiration', formatDateOnlyDisplay(data.analysis.key_dates.expiration, 'N/A')],
     ['Term', `${data.metrics.totalYears} years`],
   ];
   
@@ -274,8 +275,8 @@ function addRentScheduleSheet(workbook: ExcelJS.Workbook, data: ExportData): voi
     const abatementType = row.abatement_applies_to === 'base_plus_nnn' ? 'Base + NNN' : 'Base Only';
     
     const dataRow = sheet.addRow([
-      new Date(row.period_start),
-      new Date(row.period_end),
+      parseDateOnly(row.period_start) ?? new Date(row.period_start),
+      parseDateOnly(row.period_end) ?? new Date(row.period_end),
       row.rent_psf,
       escalationPct,
       row.free_rent_months || 0,
@@ -322,7 +323,7 @@ function addCashflowSheet(workbook: ExcelJS.Workbook, data: ExportData): void {
   
   // Header
   const headerRow = sheet.addRow([
-    'Year',
+    'Term Year',
     'Base Rent',
     'Operating',
     'Parking',

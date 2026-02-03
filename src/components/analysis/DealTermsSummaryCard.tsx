@@ -4,35 +4,15 @@ import React from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import type { AnalysisMeta } from "@/types";
+import { formatDateOnlyDisplay, parseDateOnly } from "@/lib/dateOnly";
+import { formatLeaseTerm } from "@/lib/leaseTermCalculations";
 
 interface DealTermsSummaryCardProps {
   meta: AnalysisMeta;
 }
 
 export function DealTermsSummaryCard({ meta }: DealTermsSummaryCardProps) {
-  // Calculate lease term
-  const leaseTermDisplay = React.useMemo(() => {
-    if (!meta.key_dates.commencement || !meta.key_dates.expiration) {
-      return "Not set";
-    }
-    const commencement = new Date(meta.key_dates.commencement);
-    const expiration = new Date(meta.key_dates.expiration);
-    if (isNaN(commencement.getTime()) || isNaN(expiration.getTime()) || expiration <= commencement) {
-      return "Not set";
-    }
-    const years = (expiration.getTime() - commencement.getTime()) / (1000 * 60 * 60 * 24 * 365.25);
-    const months = Math.round(years * 12);
-    const yearPart = Math.floor(years);
-    const monthPart = months % 12;
-    
-    if (yearPart > 0 && monthPart > 0) {
-      return `${yearPart} year${yearPart !== 1 ? 's' : ''}, ${monthPart} month${monthPart !== 1 ? 's' : ''}`;
-    } else if (yearPart > 0) {
-      return `${yearPart} year${yearPart !== 1 ? 's' : ''}`;
-    } else {
-      return `${monthPart} month${monthPart !== 1 ? 's' : ''}`;
-    }
-  }, [meta.key_dates]);
+  const leaseTermDisplay = React.useMemo(() => formatLeaseTerm(meta), [meta]);
 
   // Calculate base rent
   const baseRentPSF = meta.rent_schedule.length > 0 ? meta.rent_schedule[0].rent_psf : 0;
@@ -53,10 +33,10 @@ export function DealTermsSummaryCard({ meta }: DealTermsSummaryCardProps) {
         totalMonths += period.free_rent_months;
         let rentRate = 0;
         for (const r of meta.rent_schedule) {
-          const rStart = new Date(r.period_start);
-          const rEnd = new Date(r.period_end);
-          const periodStart = new Date(period.period_start);
-          if (periodStart >= rStart && periodStart <= rEnd) {
+          const rStart = parseDateOnly(r.period_start);
+          const rEnd = parseDateOnly(r.period_end);
+          const periodStart = parseDateOnly(period.period_start);
+          if (rStart && rEnd && periodStart && periodStart >= rStart && periodStart <= rEnd) {
             rentRate = r.rent_psf;
             break;
           }
@@ -90,17 +70,13 @@ export function DealTermsSummaryCard({ meta }: DealTermsSummaryCardProps) {
           <div>
             <Label className="text-xs text-muted-foreground">Commencement</Label>
             <div className="text-sm font-semibold">
-              {meta.key_dates.commencement 
-                ? new Date(meta.key_dates.commencement).toLocaleDateString()
-                : "Not set"}
+              {formatDateOnlyDisplay(meta.key_dates.commencement)}
             </div>
           </div>
           <div>
             <Label className="text-xs text-muted-foreground">Expiration</Label>
             <div className="text-sm font-semibold">
-              {meta.key_dates.expiration 
-                ? new Date(meta.key_dates.expiration).toLocaleDateString()
-                : "Not set"}
+              {formatDateOnlyDisplay(meta.key_dates.expiration)}
             </div>
           </div>
           <div>

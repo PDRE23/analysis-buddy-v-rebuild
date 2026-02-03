@@ -7,6 +7,7 @@ import type { Deal } from "./types/deal";
 import type { AnalysisMeta } from "@/types";
 import { daysSinceUpdate } from "./types/deal";
 import { getDerivedRentStartDate } from "./utils";
+import { parseDateInput, parseDateOnly } from "./dateOnly";
 
 export type ReminderType = 
   | "deal_update"
@@ -90,8 +91,15 @@ export function getActiveReminders(): Reminder[] {
   const now = new Date();
   
   return reminders
-    .filter(r => !r.completed && new Date(r.dueDate) >= now)
-    .sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
+    .filter(r => {
+      const dueDate = parseDateInput(r.dueDate);
+      return Boolean(dueDate && !r.completed && dueDate >= now);
+    })
+    .sort((a, b) => {
+      const aDate = parseDateInput(a.dueDate)?.getTime() ?? 0;
+      const bDate = parseDateInput(b.dueDate)?.getTime() ?? 0;
+      return aDate - bDate;
+    });
 }
 
 /**
@@ -102,8 +110,15 @@ export function getOverdueReminders(): Reminder[] {
   const now = new Date();
   
   return reminders
-    .filter(r => !r.completed && new Date(r.dueDate) < now)
-    .sort((a, b) => new Date(b.dueDate).getTime() - new Date(a.dueDate).getTime());
+    .filter(r => {
+      const dueDate = parseDateInput(r.dueDate);
+      return Boolean(dueDate && !r.completed && dueDate < now);
+    })
+    .sort((a, b) => {
+      const aDate = parseDateInput(a.dueDate)?.getTime() ?? 0;
+      const bDate = parseDateInput(b.dueDate)?.getTime() ?? 0;
+      return bDate - aDate;
+    });
 }
 
 /**
@@ -131,7 +146,8 @@ export function generateSmartRemindersFromDeals(deals: Deal[]): Reminder[] {
 
     // Reminder: Expected close date approaching
     if (deal.expectedCloseDate) {
-      const closeDate = new Date(deal.expectedCloseDate);
+      const closeDate = parseDateOnly(deal.expectedCloseDate);
+      if (!closeDate) return;
       const daysUntilClose = (closeDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24);
       
       if (daysUntilClose >= 0 && daysUntilClose <= 7) {
@@ -161,7 +177,8 @@ export function generateSmartRemindersFromAnalyses(analyses: AnalysisMeta[]): Re
 
   analyses.forEach((analysis) => {
     // Reminder: Commencement date approaching
-    const commencement = new Date(analysis.key_dates.commencement);
+    const commencement = parseDateOnly(analysis.key_dates.commencement);
+    if (!commencement) return;
     const daysUntilCommencement = (commencement.getTime() - now.getTime()) / (1000 * 60 * 60 * 24);
     
     if (daysUntilCommencement >= 0 && daysUntilCommencement <= 30) {
@@ -180,7 +197,8 @@ export function generateSmartRemindersFromAnalyses(analyses: AnalysisMeta[]): Re
     // Reminder: Rent start date (derived from commencement + free rent months)
     const derivedRentStart = getDerivedRentStartDate(analysis);
     if (derivedRentStart) {
-      const rentStart = new Date(derivedRentStart);
+      const rentStart = parseDateOnly(derivedRentStart);
+      if (!rentStart) return;
       const daysUntilRentStart = (rentStart.getTime() - now.getTime()) / (1000 * 60 * 60 * 24);
       
       if (daysUntilRentStart >= 0 && daysUntilRentStart <= 14) {
@@ -214,8 +232,10 @@ export function exportRemindersToICal(reminders: Reminder[]): string {
   ];
 
   reminders.forEach((reminder) => {
-    const startDate = new Date(reminder.dueDate).toISOString().replace(/[-:]/g, "").split(".")[0] + "Z";
-    const endDate = new Date(new Date(reminder.dueDate).getTime() + 60 * 60 * 1000).toISOString().replace(/[-:]/g, "").split(".")[0] + "Z";
+    const dueDate = parseDateInput(reminder.dueDate);
+    if (!dueDate) return;
+    const startDate = dueDate.toISOString().replace(/[-:]/g, "").split(".")[0] + "Z";
+    const endDate = new Date(dueDate.getTime() + 60 * 60 * 1000).toISOString().replace(/[-:]/g, "").split(".")[0] + "Z";
 
     lines.push(
       "BEGIN:VEVENT",

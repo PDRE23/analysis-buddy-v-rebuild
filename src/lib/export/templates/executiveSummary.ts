@@ -6,6 +6,7 @@
 import type { AnalysisData, CashflowLine } from "../pdf-export";
 import type { ExportConfig } from "../types";
 import { getFreeRentMonths } from "@/lib/utils";
+import { formatDateOnlyDisplay } from "@/lib/dateOnly";
 
 export interface ExecutiveSummaryData {
   analysis: AnalysisData;
@@ -58,8 +59,8 @@ export function generateExecutiveSummary(data: ExecutiveSummaryData): {
         content: [
           { label: "Market", value: analysis.market || "N/A" },
           { label: "Lease Type", value: analysis.lease_type },
-          { label: "Commencement", value: new Date(analysis.key_dates.commencement).toLocaleDateString() },
-          { label: "Expiration", value: new Date(analysis.key_dates.expiration).toLocaleDateString() },
+          { label: "Commencement", value: formatDateOnlyDisplay(analysis.key_dates.commencement, "N/A") },
+          { label: "Expiration", value: formatDateOnlyDisplay(analysis.key_dates.expiration, "N/A") },
         ],
       },
       {

@@ -12,6 +12,7 @@ import type { DailyUpdate, DealUpdateStatus } from "@/lib/types/tracking";
 import { getDealsNeedingUpdates, saveDailyUpdate, hasDealBeenUpdatedToday, markDailyUpdatesCompleted } from "@/lib/dailyTracking";
 import { ALL_STAGES } from "@/lib/types/deal";
 import { nanoid } from "nanoid";
+import { formatDateOnly, formatDateOnlyDisplay } from "@/lib/dateOnly";
 
 interface DailyUpdateModalProps {
   deals: Deal[];
@@ -105,7 +106,7 @@ export function DailyUpdateModal({
 
   // Save a single deal update
   const handleSaveSingleDeal = async (dealId: string) => {
-    const today = new Date().toISOString().split('T')[0];
+    const today = formatDateOnly(new Date());
     const update = updates[dealId];
     const deal = deals.find(d => d.id === dealId);
     
@@ -230,7 +231,7 @@ export function DailyUpdateModal({
   };
 
   const handleSave = async () => {
-    const today = new Date().toISOString().split('T')[0];
+    const today = formatDateOnly(new Date());
     setIsSaving(true);
 
     try {
@@ -314,7 +315,7 @@ export function DailyUpdateModal({
   };
 
   const handleSkip = async () => {
-    const today = new Date().toISOString().split('T')[0];
+    const today = formatDateOnly(new Date());
     setIsSaving(true);
 
     try {
@@ -479,7 +480,7 @@ export function DailyUpdateModal({
                           </div>
                           {dealStatus.lastUpdateDate && (
                             <p className="text-xs text-gray-500 mt-1">
-                              Last update: {new Date(dealStatus.lastUpdateDate).toLocaleDateString()}
+                              Last update: {formatDateOnlyDisplay(dealStatus.lastUpdateDate)}
                               {dealStatus.daysSinceUpdate >= 0 && (
                                 <span> ({dealStatus.daysSinceUpdate} days ago)</span>
                               )}

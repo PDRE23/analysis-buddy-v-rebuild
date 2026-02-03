@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import type { Prospect } from "@/lib/types/prospect";
 import { getStatusColor, getPriorityColor, isFollowUpOverdue, formatPhoneNumber } from "@/lib/prospectUtils";
 import { Phone, Mail, Calendar, MoreVertical, Eye, Edit, AlertCircle, ArrowRight } from "lucide-react";
+import { formatDateOnlyDisplay } from "@/lib/dateOnly";
 
 interface ProspectCardProps {
   prospect: Prospect;
@@ -112,7 +113,7 @@ export function ProspectCard({
             <Calendar className={`h-4 w-4 ${isOverdue ? "text-red-600" : "text-yellow-600"}`} />
             <span className="font-medium">
               {isOverdue ? "Overdue: " : "Follow-up: "}
-              {new Date(prospect.nextFollowUpDate!).toLocaleDateString()}
+              {formatDateOnlyDisplay(prospect.nextFollowUpDate)}
             </span>
             {isOverdue && <AlertCircle className="h-4 w-4 ml-auto" />}
           </div>

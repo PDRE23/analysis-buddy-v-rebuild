@@ -12,6 +12,7 @@ import { Building2, MapPin, Calendar, DollarSign, TrendingUp, Gift } from "lucid
 import type { PresentationSlide as SlideData } from "@/lib/presentationGenerator";
 import type { AnnualLine } from "@/types";
 import { cn } from "@/lib/utils";
+import { formatDateOnlyDisplay } from "@/lib/dateOnly";
 
 interface PresentationSlideProps {
   slide: SlideData;
@@ -93,7 +94,7 @@ export function PresentationSlide({ slide, cashflow, className }: PresentationSl
                   <div className="text-sm text-muted-foreground">Commencement</div>
                 </div>
                 <div className="text-xl font-semibold">
-                  {new Date(slide.content.commencement as string).toLocaleDateString()}
+                  {formatDateOnlyDisplay(slide.content.commencement as string)}
                 </div>
               </Card>
               <Card className="p-6">
@@ -102,7 +103,7 @@ export function PresentationSlide({ slide, cashflow, className }: PresentationSl
                   <div className="text-sm text-muted-foreground">Expiration</div>
                 </div>
                 <div className="text-xl font-semibold">
-                  {new Date(slide.content.expiration as string).toLocaleDateString()}
+                  {formatDateOnlyDisplay(slide.content.expiration as string)}
                 </div>
               </Card>
             </div>
@@ -145,7 +146,7 @@ export function PresentationSlide({ slide, cashflow, className }: PresentationSl
                 {cashflow.map((line, index) => (
                   <Card key={index} className="p-4">
                     <div className="flex items-center justify-between">
-                      <div className="text-lg font-semibold">{line.year}</div>
+                      <div className="text-lg font-semibold">{`YR ${line.year}`}</div>
                       <div className="text-2xl font-bold">
                         ${line.net_cash_flow.toLocaleString()}
                       </div>

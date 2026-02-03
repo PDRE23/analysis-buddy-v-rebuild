@@ -17,6 +17,7 @@ import {
   Upload,
 } from "lucide-react";
 import { ZoomInfoImportDialog } from "./ZoomInfoImportDialog";
+import { formatDateOnlyDisplay } from "@/lib/dateOnly";
 
 interface ProspectsDashboardProps {
   prospects: Prospect[];
@@ -140,7 +141,7 @@ export function ProspectsDashboard({
               )}
               {prospect.nextFollowUpDate && (
                 <span className={isFollowUpOverdue(prospect) ? "text-red-600 font-medium" : ""}>
-                  Follow-up: {new Date(prospect.nextFollowUpDate).toLocaleDateString()}
+                  Follow-up: {formatDateOnlyDisplay(prospect.nextFollowUpDate)}
                 </span>
               )}
             </div>

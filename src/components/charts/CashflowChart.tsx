@@ -48,9 +48,9 @@ export function CashflowChart({
   const [chartType, setChartType] = useState<"area" | "line" | "bar">("area");
 
   // Format data for Recharts
-  const chartData = cashflow.map((line, idx) => ({
-    year: line.year.toString(),
-    yearLabel: `YR ${idx + 1}`,
+  const chartData = cashflow.map((line) => ({
+    year: line.year,
+    yearLabel: `YR ${line.year}`,
     netCashFlow: line.net_cash_flow,
     subtotal: line.subtotal,
     baseRent: line.base_rent,
@@ -59,7 +59,7 @@ export function CashflowChart({
   }));
 
   const compareData = compareWith?.map((line) => ({
-    year: line.year.toString(),
+    year: line.year,
     netCashFlow: line.net_cash_flow,
     subtotal: line.subtotal,
   }));
@@ -84,9 +84,10 @@ export function CashflowChart({
 
   const CustomTooltip = ({ active, payload, label }: any) => {
     if (active && payload && payload.length) {
+      const labelText = typeof label === "string" && label.startsWith("YR") ? label : `YR ${label}`;
       return (
         <div className="bg-white border border-gray-200 rounded-lg shadow-lg p-4">
-          <p className="font-semibold mb-2">{`Year ${label}`}</p>
+          <p className="font-semibold mb-2">{labelText}</p>
           {payload.map((entry: any, index: number) => (
             <p key={index} style={{ color: entry.color }} className="text-sm">
               {`${entry.name}: ${formatCurrency(entry.value)}`}
@@ -174,7 +175,8 @@ export function CashflowChart({
                   dataKey="year"
                   stroke="#6b7280"
                   tick={{ fontSize: 12 }}
-                  label={{ value: "Year", position: "insideBottom", offset: -5 }}
+                  tickFormatter={(value) => `YR ${value}`}
+                  label={{ value: "Term Year", position: "insideBottom", offset: -5 }}
                 />
                 <YAxis
                   stroke="#6b7280"

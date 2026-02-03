@@ -5,6 +5,7 @@
 
 import type { AnalysisMeta } from "@/types";
 import { nanoid } from "nanoid";
+import { formatDateOnly } from "./dateOnly";
 
 export type TemplateCategory = 
   | "office"
@@ -64,9 +65,9 @@ function getDefaultTemplates(): LeaseTemplate[] {
       template: {
         lease_type: "FS",
         key_dates: {
-          commencement: new Date().toISOString().split("T")[0],
-          rent_start: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split("T")[0],
-          expiration: new Date(Date.now() + 5 * 365 * 24 * 60 * 60 * 1000).toISOString().split("T")[0],
+          commencement: formatDateOnly(new Date()),
+          rent_start: formatDateOnly(new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)),
+          expiration: formatDateOnly(new Date(Date.now() + 5 * 365 * 24 * 60 * 60 * 1000)),
         },
         operating: {
           est_op_ex_psf: 8.0,
@@ -78,8 +79,8 @@ function getDefaultTemplates(): LeaseTemplate[] {
           granularity: "annual",
         },
         rent_schedule: [{
-          period_start: new Date().toISOString().split("T")[0],
-          period_end: new Date(Date.now() + 5 * 365 * 24 * 60 * 60 * 1000).toISOString().split("T")[0],
+          period_start: formatDateOnly(new Date()),
+          period_end: formatDateOnly(new Date(Date.now() + 5 * 365 * 24 * 60 * 60 * 1000)),
           rent_psf: 30.0,
           escalation_percentage: 0.03,
         }],
@@ -101,9 +102,9 @@ function getDefaultTemplates(): LeaseTemplate[] {
       template: {
         lease_type: "NNN",
         key_dates: {
-          commencement: new Date().toISOString().split("T")[0],
-          rent_start: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split("T")[0],
-          expiration: new Date(Date.now() + 10 * 365 * 24 * 60 * 60 * 1000).toISOString().split("T")[0],
+          commencement: formatDateOnly(new Date()),
+          rent_start: formatDateOnly(new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)),
+          expiration: formatDateOnly(new Date(Date.now() + 10 * 365 * 24 * 60 * 60 * 1000)),
         },
         operating: {
           est_op_ex_psf: 3.0,
@@ -115,8 +116,8 @@ function getDefaultTemplates(): LeaseTemplate[] {
           granularity: "annual",
         },
         rent_schedule: [{
-          period_start: new Date().toISOString().split("T")[0],
-          period_end: new Date(Date.now() + 10 * 365 * 24 * 60 * 60 * 1000).toISOString().split("T")[0],
+          period_start: formatDateOnly(new Date()),
+          period_end: formatDateOnly(new Date(Date.now() + 10 * 365 * 24 * 60 * 60 * 1000)),
           rent_psf: 8.0,
           escalation_percentage: 0.025,
         }],
@@ -139,9 +140,9 @@ function getDefaultTemplates(): LeaseTemplate[] {
         lease_type: "FS",
         base_year: new Date().getFullYear(),
         key_dates: {
-          commencement: new Date().toISOString().split("T")[0],
-          rent_start: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split("T")[0],
-          expiration: new Date(Date.now() + 7 * 365 * 24 * 60 * 60 * 1000).toISOString().split("T")[0],
+          commencement: formatDateOnly(new Date()),
+          rent_start: formatDateOnly(new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)),
+          expiration: formatDateOnly(new Date(Date.now() + 7 * 365 * 24 * 60 * 60 * 1000)),
         },
         operating: {
           est_op_ex_psf: 12.0,
@@ -153,8 +154,8 @@ function getDefaultTemplates(): LeaseTemplate[] {
           granularity: "annual",
         },
         rent_schedule: [{
-          period_start: new Date().toISOString().split("T")[0],
-          period_end: new Date(Date.now() + 7 * 365 * 24 * 60 * 60 * 1000).toISOString().split("T")[0],
+          period_start: formatDateOnly(new Date()),
+          period_end: formatDateOnly(new Date(Date.now() + 7 * 365 * 24 * 60 * 60 * 1000)),
           rent_psf: 35.0,
           escalation_percentage: 0.03,
         }],

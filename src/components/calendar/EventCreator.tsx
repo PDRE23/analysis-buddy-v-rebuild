@@ -20,6 +20,7 @@ import {
 } from "@/lib/integrations/calendar";
 import type { Deal } from "@/lib/types/deal";
 import type { AnalysisMeta } from "@/types";
+import { parseDateInput } from "@/lib/dateOnly";
 
 interface EventCreatorProps {
   deal?: Deal;
@@ -72,7 +73,11 @@ export function EventCreator({
 
       if (deal) {
         const [hours, minutes] = time.split(":").map(Number);
-        const eventDate = new Date(date);
+        const eventDate = parseDateInput(date);
+        if (!eventDate) {
+          alert("Invalid date");
+          return;
+        }
         eventDate.setHours(hours, minutes, 0, 0);
 
         eventData = createEventForDeal(
@@ -97,7 +102,11 @@ export function EventCreator({
       } else {
         // Manual event
         const [hours, minutes] = time.split(":").map(Number);
-        const startDate = new Date(date);
+        const startDate = parseDateInput(date);
+        if (!startDate) {
+          alert("Invalid date");
+          return;
+        }
         startDate.setHours(hours, minutes, 0, 0);
         const endDate = new Date(startDate.getTime() + parseInt(duration) * 60 * 1000);
 

@@ -3,7 +3,7 @@
  */
 
 export interface AnnualLine {
-  year: number; // calendar year
+  year: number; // term year index (1-based)
   base_rent: number; // $ total (not psf)
   abatement_credit: number; // negative number (credit)
   operating: number; // passthroughs modeled

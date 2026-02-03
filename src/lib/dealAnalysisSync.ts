@@ -6,6 +6,7 @@
 import type { Deal } from "@/lib/types/deal";
 import type { AnalysisMeta } from "@/types";
 import { calculateCommission } from "./commission";
+import { formatDateOnly, parseDateOnly } from "./dateOnly";
 
 /**
  * Create a new Analysis from Deal data (auto-populate fields)
@@ -14,17 +15,18 @@ export function createAnalysisFromDeal(
   deal: Deal,
   analysisTemplate: Partial<AnalysisMeta>
 ): Partial<AnalysisMeta> {
+  const today = formatDateOnly(new Date());
   return {
     ...analysisTemplate,
     tenant_name: deal.clientName,
     market: `${deal.property.address}, ${deal.property.city}, ${deal.property.state}`,
     rsf: deal.rsf,
     key_dates: {
-      commencement: deal.expectedCloseDate || new Date().toISOString(),
-      rent_start: deal.expectedCloseDate || new Date().toISOString(),
+      commencement: deal.expectedCloseDate || today,
+      rent_start: deal.expectedCloseDate || today,
       expiration: deal.expectedCloseDate 
         ? calculateExpiration(deal.expectedCloseDate, deal.leaseTerm)
-        : calculateExpiration(new Date().toISOString(), deal.leaseTerm),
+        : calculateExpiration(today, deal.leaseTerm),
       ...(analysisTemplate.key_dates || {}),
     },
   };
@@ -150,8 +152,8 @@ export function syncDealToAnalysis(
  * Calculate lease term in months from start and end dates
  */
 function calculateLeaseTerm(start: string, end: string): number {
-  const startDate = new Date(start);
-  const endDate = new Date(end);
+  const startDate = parseDateOnly(start) ?? new Date(start);
+  const endDate = parseDateOnly(end) ?? new Date(end);
   const diffTime = endDate.getTime() - startDate.getTime();
   const diffMonths = Math.round(diffTime / (1000 * 60 * 60 * 24 * 30.44)); // Average days per month
   return Math.max(0, diffMonths);
@@ -161,9 +163,10 @@ function calculateLeaseTerm(start: string, end: string): number {
  * Calculate expiration date from commencement and term
  */
 function calculateExpiration(commencement: string, termMonths: number): string {
-  const date = new Date(commencement);
+  const date = parseDateOnly(commencement) ?? new Date(commencement);
   date.setMonth(date.getMonth() + termMonths);
-  return date.toISOString();
+  date.setDate(date.getDate() - 1);
+  return formatDateOnly(date);
 }
 
 /**

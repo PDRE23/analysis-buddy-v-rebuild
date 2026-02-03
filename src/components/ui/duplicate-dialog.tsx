@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { PercentageInput } from "@/components/ui/percentage-input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Copy, X } from "lucide-react";
+import { formatDateOnly, parseDateOnly } from "@/lib/dateOnly";
 
 export interface DuplicateOptions {
   newName: string;
@@ -222,10 +223,13 @@ export function applyDuplicateOptions(
   
   // Adjust lease term (update expiration date)
   if (options.adjustTermMonths !== 0) {
-    const commencement = new Date(duplicate.key_dates.commencement);
+    const commencement = parseDateOnly(duplicate.key_dates.commencement);
+    if (!commencement) {
+      return duplicate;
+    }
     const newExpiration = new Date(commencement);
     newExpiration.setMonth(newExpiration.getMonth() + options.adjustTermMonths);
-    duplicate.key_dates.expiration = newExpiration.toISOString().split('T')[0];
+    duplicate.key_dates.expiration = formatDateOnly(newExpiration);
   }
   
   // Adjust concessions

@@ -7,6 +7,7 @@ import autoTable from 'jspdf-autotable';
 import type { ExportConfig, BrandingConfig } from './types';
 import { DEFAULT_BRANDING } from './types';
 import type { ExportData, CashflowLine } from './pdf-export';
+import { formatDateOnlyDisplay } from '../dateOnly';
 
 // Extend jsPDF type to include autoTable
 declare module 'jspdf' {
@@ -124,11 +125,11 @@ function addComparisonTable(doc: jsPDF, proposals: ExportData[], yPosition: numb
     ['Term (years)', ...proposals.map((p) => p.metrics.totalYears.toString())],
     [
       'Commencement',
-      ...proposals.map((p) => new Date(p.analysis.key_dates.commencement).toLocaleDateString()),
+      ...proposals.map((p) => formatDateOnlyDisplay(p.analysis.key_dates.commencement, "N/A")),
     ],
     [
       'Expiration',
-      ...proposals.map((p) => new Date(p.analysis.key_dates.expiration).toLocaleDateString()),
+      ...proposals.map((p) => formatDateOnlyDisplay(p.analysis.key_dates.expiration, "N/A")),
     ],
   ];
 
@@ -249,12 +250,12 @@ function addCashflowComparison(doc: jsPDF, proposals: ExportData[], yPosition: n
   const sortedYears = Array.from(allYears).sort();
 
   const headers = [
-    'Year',
+    'Term Year',
     ...proposals.map((p) => `${p.proposalSide?.substring(0, 2) || 'P'} ${p.proposalLabel || ''}`),
   ];
 
   const rows = sortedYears.map((year) => [
-    year.toString(),
+    `YR ${year}`,
     ...proposals.map((p) => {
       const line = p.cashflow.find((l) => l.year === year);
       return line ? fmtMoney(line.net_cash_flow) : '-';

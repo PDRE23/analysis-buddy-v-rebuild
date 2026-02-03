@@ -7,6 +7,7 @@ import type { AnalysisMeta } from "@/types/analysis";
 import type { AnalysisData, CashflowLine } from "../pdf-export";
 import type { ExportConfig } from "../types";
 import { getDerivedRentStartDate } from "../../utils";
+import { formatDateOnlyDisplay } from "../../dateOnly";
 
 export interface QuickReferenceData {
   analysis: AnalysisData;
@@ -57,9 +58,9 @@ export function generateQuickReference(data: QuickReferenceData): {
       { label: "NPV", value: `$${metrics.npv.toLocaleString()}` },
     ],
     keyDates: [
-      { label: "Commencement", value: new Date(analysis.key_dates.commencement).toLocaleDateString() },
-      { label: "Rent Start", value: derivedRentStart ? new Date(derivedRentStart).toLocaleDateString() : "N/A" },
-      { label: "Expiration", value: new Date(analysis.key_dates.expiration).toLocaleDateString() },
+      { label: "Commencement", value: formatDateOnlyDisplay(analysis.key_dates.commencement, "N/A") },
+      { label: "Rent Start", value: derivedRentStart ? formatDateOnlyDisplay(derivedRentStart, "N/A") : "N/A" },
+      { label: "Expiration", value: formatDateOnlyDisplay(analysis.key_dates.expiration, "N/A") },
     ],
     contactInfo,
   };

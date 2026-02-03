@@ -10,6 +10,7 @@ import { Badge } from "./badge";
 import { Bell, Clock, AlertCircle } from "lucide-react";
 import type { Reminder } from "@/lib/reminders";
 import { cn } from "@/lib/utils";
+import { parseDateInput } from "@/lib/dateOnly";
 
 interface ReminderBadgeProps {
   reminder: Reminder;
@@ -18,7 +19,7 @@ interface ReminderBadgeProps {
 }
 
 export function ReminderBadge({ reminder, onClick, className }: ReminderBadgeProps) {
-  const dueDate = new Date(reminder.dueDate);
+  const dueDate = parseDateInput(reminder.dueDate) ?? new Date(reminder.dueDate);
   const now = new Date();
   const isOverdue = dueDate < now;
   const daysUntil = Math.ceil((dueDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));

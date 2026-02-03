@@ -16,6 +16,7 @@ import { generateExcel, downloadExcel, generateComparisonExcel } from './excel-e
 import { openPrintDialog, injectPrintStyles } from './print-styles';
 import { generateComparisonPDF, downloadComparisonPDF } from './comparison-export';
 import { generateCashflowChartSVG, generateMetricsComparisonSVG } from './chart-generator';
+import { formatDateOnly, parseDateOnly } from '../dateOnly';
 
 /**
  * Helper to build cashflow lines from analysis data
@@ -23,11 +24,17 @@ import { generateCashflowChartSVG, generateMetricsComparisonSVG } from './chart-
  */
 function buildCashflowFromAnalysis(analysis: AnalysisData): CashflowLine[] {
   // This is a stub - should be replaced with actual calculation logic
-  const startYear = new Date(analysis.key_dates.commencement).getFullYear();
-  const endYear = new Date(analysis.key_dates.expiration).getFullYear();
+  const startDate = parseDateOnly(analysis.key_dates.commencement) ?? new Date(analysis.key_dates.commencement);
+  const endDate = parseDateOnly(analysis.key_dates.expiration) ?? new Date(analysis.key_dates.expiration);
   const years: CashflowLine[] = [];
   
-  for (let year = startYear; year <= endYear; year++) {
+  let totalMonths = (endDate.getFullYear() - startDate.getFullYear()) * 12 + (endDate.getMonth() - startDate.getMonth()) + 1;
+  if (endDate.getDate() < startDate.getDate()) {
+    totalMonths -= 1;
+  }
+  const totalYears = Math.max(1, Math.ceil(totalMonths / 12));
+
+  for (let year = 1; year <= totalYears; year++) {
     years.push({
       year,
       base_rent: 0,
@@ -83,7 +90,7 @@ export async function exportAnalysis(
     proposalSide: proposalInfo?.side,
   };
   
-  const filename = `${analysis.name.replace(/[^a-z0-9]/gi, '_')}_${format}_${new Date().toISOString().split('T')[0]}`;
+  const filename = `${analysis.name.replace(/[^a-z0-9]/gi, '_')}_${format}_${formatDateOnly(new Date())}`;
   
   try {
     if (format === 'pdf') {
@@ -130,7 +137,7 @@ export async function exportComparison(
     proposalSide: p.side,
   }));
   
-  const filename = `Comparison_${format}_${new Date().toISOString().split('T')[0]}`;
+  const filename = `Comparison_${format}_${formatDateOnly(new Date())}`;
   
   try {
     if (format === 'excel') {

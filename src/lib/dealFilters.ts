@@ -4,6 +4,7 @@
 
 import type { Deal, DealStage, DealPriority } from "./types/deal";
 import type { AnalysisMeta } from "@/types";
+import { parseDateOnly } from "./dateOnly";
 
 export interface DealFilter {
   id: string;
@@ -28,7 +29,7 @@ export const QUICK_FILTERS: DealFilter[] = [
     description: 'Deals with expected close date within 30 days',
     predicate: (deal) => {
       if (!deal.expectedCloseDate) return false;
-      const closeDate = new Date(deal.expectedCloseDate);
+      const closeDate = parseDateOnly(deal.expectedCloseDate) ?? new Date(deal.expectedCloseDate);
       const now = new Date();
       const thirtyDaysFromNow = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
       return closeDate >= now && closeDate <= thirtyDaysFromNow;
@@ -69,7 +70,7 @@ export const QUICK_FILTERS: DealFilter[] = [
     description: 'Deals with upcoming or overdue follow-ups',
     predicate: (deal) => {
       if (!deal.nextFollowUp) return false;
-      const followUpDate = new Date(deal.nextFollowUp);
+      const followUpDate = parseDateOnly(deal.nextFollowUp) ?? new Date(deal.nextFollowUp);
       const now = new Date();
       const sevenDaysFromNow = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
       return followUpDate <= sevenDaysFromNow;
@@ -253,8 +254,12 @@ export function sortDeals(
         bVal = new Date(b.createdAt).getTime();
         break;
       case 'expectedCloseDate':
-        aVal = a.expectedCloseDate ? new Date(a.expectedCloseDate).getTime() : 0;
-        bVal = b.expectedCloseDate ? new Date(b.expectedCloseDate).getTime() : 0;
+        aVal = a.expectedCloseDate
+          ? (parseDateOnly(a.expectedCloseDate) ?? new Date(a.expectedCloseDate)).getTime()
+          : 0;
+        bVal = b.expectedCloseDate
+          ? (parseDateOnly(b.expectedCloseDate) ?? new Date(b.expectedCloseDate)).getTime()
+          : 0;
         break;
       case 'rsf':
         aVal = a.rsf;

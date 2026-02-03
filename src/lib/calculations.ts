@@ -2,8 +2,10 @@
  * Core calculation functions for lease analysis
  */
 
+import { parseDateOnly } from "./dateOnly";
+
 export interface AnnualLine {
-  year: number;
+  year: number; // term year index (1-based)
   base_rent: number;
   operating: number;
   parking?: number;
@@ -282,9 +284,9 @@ export const calculateUnamortizedCosts = (
   interestRate: number = 0.08 // Default 8% annual
 ): UnamortizedCosts => {
   try {
-    const commencement = new Date(commencementDate);
-    const expiration = new Date(expirationDate);
-    const termination = new Date(terminationDate);
+    const commencement = parseDateOnly(commencementDate) ?? new Date(commencementDate);
+    const expiration = parseDateOnly(expirationDate) ?? new Date(expirationDate);
+    const termination = parseDateOnly(terminationDate) ?? new Date(terminationDate);
     
     // Validate dates
     if (isNaN(commencement.getTime()) || isNaN(expiration.getTime()) || isNaN(termination.getTime())) {
@@ -413,10 +415,10 @@ export const calculateEarlyTerminationFee = (
   }
 ): TerminationFeeResult => {
   // Find rent period active at termination date
-  const termination = new Date(terminationDate);
+  const termination = parseDateOnly(terminationDate) ?? new Date(terminationDate);
   let activeRentPeriod = analysis.rent_schedule.find(r => {
-    const start = new Date(r.period_start);
-    const end = new Date(r.period_end);
+    const start = parseDateOnly(r.period_start) ?? new Date(r.period_start);
+    const end = parseDateOnly(r.period_end) ?? new Date(r.period_end);
     return termination >= start && termination <= end;
   });
   
@@ -429,7 +431,7 @@ export const calculateEarlyTerminationFee = (
   }
   
   // Calculate then-current rent (with escalations)
-  const periodStart = new Date(activeRentPeriod.period_start);
+  const periodStart = parseDateOnly(activeRentPeriod.period_start) ?? new Date(activeRentPeriod.period_start);
   const yearsInPeriod = (termination.getFullYear() - periodStart.getFullYear()) + 
     (termination.getMonth() - periodStart.getMonth()) / 12;
   const escalationRate = activeRentPeriod.escalation_percentage || 0;

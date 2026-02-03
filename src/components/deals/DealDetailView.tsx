@@ -30,6 +30,7 @@ import {
 } from "lucide-react";
 import { LinkAnalysisDialog } from "@/components/ui/link-analysis-dialog";
 import { FileManager } from "./FileManager";
+import { formatDateOnlyDisplay } from "@/lib/dateOnly";
 
 interface DealDetailViewProps {
   deal: Deal;
@@ -208,7 +209,7 @@ export function DealDetailView({
                         Expected Close Date
                       </div>
                       <div className="text-lg font-semibold">
-                        {new Date(deal.expectedCloseDate).toLocaleDateString()}
+                        {formatDateOnlyDisplay(deal.expectedCloseDate)}
                       </div>
                     </div>
                   )}

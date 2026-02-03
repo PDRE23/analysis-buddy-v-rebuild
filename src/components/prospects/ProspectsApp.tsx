@@ -16,6 +16,7 @@ import { logAction } from "@/lib/audit";
 import { setProspectStorageUser } from "@/lib/prospectStorage";
 import { Button } from "@/components/ui/button";
 import { Phone, Calendar } from "lucide-react";
+import { formatDateOnlyDisplay, parseDateInput } from "@/lib/dateOnly";
 
 interface ProspectsAppProps {
   onConvertToDeal?: (prospect: Prospect) => void;
@@ -228,7 +229,8 @@ export function ProspectsApp({ onConvertToDeal }: ProspectsAppProps) {
         if (prospect.id === prospectId) {
           const updatedFollowUps = [...prospect.followUps, followUp];
           const sortedFollowUps = updatedFollowUps.sort((a, b) => 
-            new Date(a.scheduledDate).getTime() - new Date(b.scheduledDate).getTime()
+            (parseDateInput(a.scheduledDate)?.getTime() ?? new Date(a.scheduledDate).getTime()) -
+              (parseDateInput(b.scheduledDate)?.getTime() ?? new Date(b.scheduledDate).getTime())
           );
           const nextFollowUp = sortedFollowUps.find(fu => !fu.completed);
           
@@ -243,7 +245,7 @@ export function ProspectsApp({ onConvertToDeal }: ProspectsAppProps) {
                 id: nanoid(),
                 timestamp: new Date().toISOString(),
                 type: "follow_up" as const,
-                description: `Follow-up scheduled: ${followUp.type} on ${new Date(followUp.scheduledDate).toLocaleDateString()}`,
+                description: `Follow-up scheduled: ${followUp.type} on ${formatDateOnlyDisplay(followUp.scheduledDate)}`,
               },
             ],
           };

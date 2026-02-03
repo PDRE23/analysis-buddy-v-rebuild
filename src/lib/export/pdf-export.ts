@@ -6,6 +6,7 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import type { ExportConfig, ExportMetadata, BrandingConfig } from './types';
 import { DEFAULT_BRANDING } from './types';
+import { formatDateOnlyDisplay } from '../dateOnly';
 
 // Extend jsPDF type to include autoTable
 declare module 'jspdf' {
@@ -58,7 +59,7 @@ export interface AnalysisData {
 }
 
 export interface CashflowLine {
-  year: number;
+  year: number; // term year index (1-based)
   base_rent: number;
   operating: number;
   parking: number;
@@ -206,8 +207,8 @@ function addSummarySection(doc: jsPDF, data: ExportData, yPosition: number): num
     ['Square Footage', `${data.analysis.rsf.toLocaleString()} RSF`],
     ['Lease Type', data.analysis.lease_type],
     ['Status', data.analysis.status],
-    ['Commencement', new Date(data.analysis.key_dates.commencement).toLocaleDateString()],
-    ['Expiration', new Date(data.analysis.key_dates.expiration).toLocaleDateString()],
+    ['Commencement', formatDateOnlyDisplay(data.analysis.key_dates.commencement, "N/A")],
+    ['Expiration', formatDateOnlyDisplay(data.analysis.key_dates.expiration, "N/A")],
     ['Term', `${data.metrics.totalYears} years`],
   ];
 
@@ -298,8 +299,8 @@ function addRentScheduleSection(doc: jsPDF, data: ExportData, yPosition: number)
   yPosition += 8;
 
   const scheduleData = data.analysis.rent_schedule.map((row) => [
-    new Date(row.period_start).toLocaleDateString(),
-    new Date(row.period_end).toLocaleDateString(),
+    formatDateOnlyDisplay(row.period_start, "N/A"),
+    formatDateOnlyDisplay(row.period_end, "N/A"),
     fmtRate(row.rent_psf),
     row.escalation_percentage ? `${(row.escalation_percentage * 100).toFixed(1)}%` : '0%',
     row.free_rent_months ? `${row.free_rent_months} months` : '-',
@@ -345,7 +346,7 @@ function addCashflowSection(doc: jsPDF, data: ExportData, yPosition: number): nu
   yPosition += 8;
 
   const cashflowData = data.cashflow.map((line) => [
-    line.year.toString(),
+    `YR ${line.year}`,
     fmtMoney(line.base_rent),
     fmtMoney(line.operating),
     fmtMoney(line.parking),
@@ -376,7 +377,7 @@ function addCashflowSection(doc: jsPDF, data: ExportData, yPosition: number): nu
 
   autoTable(doc, {
     startY: yPosition,
-    head: [['Year', 'Base Rent', 'Operating', 'Parking', 'Abatement', 'Net Cash Flow']],
+    head: [['Term Year', 'Base Rent', 'Operating', 'Parking', 'Abatement', 'Net Cash Flow']],
     body: cashflowData,
     theme: 'striped',
     styles: {

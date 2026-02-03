@@ -63,6 +63,8 @@ import {
 } from "@/lib/aiInsights";
 import { InsightPanel } from "@/components/ui/insight-badge";
 import { getMarketBasedSuggestions } from "@/lib/intelligentDefaults";
+import { formatDateOnly, formatDateOnlyDisplay, parseDateInput, parseDateOnly } from "@/lib/dateOnly";
+import { calculateLeaseTermParts, formatLeaseTerm } from "@/lib/leaseTermCalculations";
 import {
   DndContext,
   closestCenter,
@@ -240,7 +242,7 @@ const clamp = (v: number, min: number, max: number) => Math.min(max, Math.max(mi
  *************************************************/
 
 export interface AnnualLine {
-  year: number; // calendar year
+  year: number; // term year index (1-based)
   base_rent: number; // $ total (not psf)
   abatement_credit: number; // negative number (credit)
   operating: number; // passthroughs modeled
@@ -262,13 +264,16 @@ function escalate(value: number, n: number, method: "fixed" | "cpi" = "fixed", r
   return value * Math.pow(1 + r, n); // CPI treated as provided rate
 }
 
-/** Return number of months overlapping [start, end) within [a,b). */
+/** Return number of months overlapping [start, end] within [a,b]. */
 function overlappingMonths(start: Date, end: Date, a: Date, b: Date): number {
   const s = new Date(Math.max(start.getTime(), a.getTime()));
   const e = new Date(Math.min(end.getTime(), b.getTime()));
-  if (e <= s) return 0;
-  const months = (e.getFullYear() - s.getFullYear()) * 12 + (e.getMonth() - s.getMonth());
-  return Math.max(0, months + 1); // count partial months
+  if (e < s) return 0;
+  let months = (e.getFullYear() - s.getFullYear()) * 12 + (e.getMonth() - s.getMonth()) + 1;
+  if (e.getDate() < s.getDate()) {
+    months -= 1;
+  }
+  return Math.max(0, months);
 }
 
 type EscalationPeriodLike = {
@@ -279,9 +284,16 @@ type EscalationPeriodLike = {
 
 type CustomEscalationLookup = {
   sortedPeriods: EscalationPeriodLike[];
-  yearToPeriodIndex: Map<number, number>;
-  periodFirstYear: Array<number | undefined>;
+  termYearToPeriodIndex: Map<number, number>;
+  periodFirstTermYear: Array<number | undefined>;
   periodBaseAtStart: number[];
+};
+
+type TermYearPeriod = {
+  index: number; // 0-based term year index
+  start: Date;
+  end: Date;
+  months: number;
 };
 
 function getAnniversaryDate(commencement: Date, year: number): Date {
@@ -291,34 +303,65 @@ function getAnniversaryDate(commencement: Date, year: number): Date {
   return new Date(year, month, Math.min(day, lastDayOfMonth));
 }
 
+function buildTermYearPeriods(commencement: Date, expiration: Date): TermYearPeriod[] {
+  if (Number.isNaN(commencement.getTime()) || Number.isNaN(expiration.getTime()) || expiration <= commencement) {
+    return [];
+  }
+
+  const periods: TermYearPeriod[] = [];
+  const baseYear = commencement.getFullYear();
+
+  for (let index = 0; ; index += 1) {
+    const start = getAnniversaryDate(commencement, baseYear + index);
+    if (start > expiration) break;
+    const nextStart = getAnniversaryDate(commencement, baseYear + index + 1);
+    const end = new Date(nextStart);
+    end.setDate(end.getDate() - 1);
+    if (end > expiration) {
+      end.setTime(expiration.getTime());
+    }
+    const months = overlappingMonths(start, end, start, end);
+    periods.push({ index, start, end, months });
+  }
+
+  return periods;
+}
+
+function getTermYearIndexForDate(commencement: Date, date: Date): number {
+  let months = (date.getFullYear() - commencement.getFullYear()) * 12 + (date.getMonth() - commencement.getMonth());
+  if (date.getDate() < commencement.getDate()) {
+    months -= 1;
+  }
+  return Math.max(0, Math.floor(months / 12));
+}
+
 function buildCustomEscalationLookup(
   baseValue: number,
-  years: number[],
-  commencement: Date,
+  termPeriods: TermYearPeriod[],
   periods: EscalationPeriodLike[]
 ): CustomEscalationLookup {
   const sortedPeriods = [...periods].sort(
-    (a, b) => new Date(a.period_start).getTime() - new Date(b.period_start).getTime()
+    (a, b) => (parseDateInput(a.period_start)?.getTime() ?? 0) - (parseDateInput(b.period_start)?.getTime() ?? 0)
   );
   const periodDates = sortedPeriods.map((period) => ({
-    start: new Date(period.period_start),
-    end: new Date(period.period_end),
+    start: parseDateInput(period.period_start) ?? new Date(period.period_start),
+    end: parseDateInput(period.period_end) ?? new Date(period.period_end),
   }));
 
-  const yearToPeriodIndex = new Map<number, number>();
-  for (const year of years) {
-    const anniversary = getAnniversaryDate(commencement, year);
-    const index = periodDates.findIndex((period) => anniversary >= period.start && anniversary <= period.end);
+  const termYearToPeriodIndex = new Map<number, number>();
+  for (const period of termPeriods) {
+    const anniversary = period.start;
+    const index = periodDates.findIndex((periodDate) => anniversary >= periodDate.start && anniversary <= periodDate.end);
     if (index >= 0) {
-      yearToPeriodIndex.set(year, index);
+      termYearToPeriodIndex.set(period.index, index);
     }
   }
 
-  const periodFirstYear: Array<number | undefined> = new Array(sortedPeriods.length);
+  const periodFirstTermYear: Array<number | undefined> = new Array(sortedPeriods.length);
   const periodYearCounts: number[] = new Array(sortedPeriods.length).fill(0);
-  for (const [year, index] of yearToPeriodIndex.entries()) {
-    if (periodFirstYear[index] === undefined || year < (periodFirstYear[index] as number)) {
-      periodFirstYear[index] = year;
+  for (const [termYear, index] of termYearToPeriodIndex.entries()) {
+    if (periodFirstTermYear[index] === undefined || termYear < (periodFirstTermYear[index] as number)) {
+      periodFirstTermYear[index] = termYear;
     }
     periodYearCounts[index] += 1;
   }
@@ -335,21 +378,27 @@ function buildCustomEscalationLookup(
 
   return {
     sortedPeriods,
-    yearToPeriodIndex,
-    periodFirstYear,
+    termYearToPeriodIndex,
+    periodFirstTermYear,
     periodBaseAtStart,
   };
 }
 
 export function buildAnnualCashflow(a: AnalysisMeta): AnnualLine[] {
-  const commencement = new Date(a.key_dates.commencement);
-  const expiration = new Date(a.key_dates.expiration);
+  const commencement = parseDateOnly(a.key_dates.commencement) ?? new Date(a.key_dates.commencement);
+  const expiration = parseDateOnly(a.key_dates.expiration) ?? new Date(a.key_dates.expiration);
 
-  const years: number[] = [];
-  for (let y = commencement.getFullYear(); y <= expiration.getFullYear(); y++) years.push(y);
+  if (
+    Number.isNaN(commencement.getTime()) ||
+    Number.isNaN(expiration.getTime()) ||
+    expiration <= commencement
+  ) {
+    return [];
+  }
 
-  const lines: AnnualLine[] = years.map((y) => ({
-    year: y,
+  const termPeriods = buildTermYearPeriods(commencement, expiration);
+  const lines: AnnualLine[] = termPeriods.map((period) => ({
+    year: period.index + 1,
     base_rent: 0,
     abatement_credit: 0,
     operating: 0,
@@ -363,88 +412,69 @@ export function buildAnnualCashflow(a: AnalysisMeta): AnnualLine[] {
   }));
 
   const rsf = a.rsf;
-  const addToYear = (year: number, field: AnnualLineNumericKey, amount: number) => {
-    const row = lines.find((r) => r.year === year);
+  const addToIndex = (index: number, field: AnnualLineNumericKey, amount: number) => {
+    const row = lines[index];
     if (row) row[field] = (row[field] as number) + amount;
   };
 
   // Base Rent & Abatement
   const escalationType = a.rent_escalation?.escalation_type || "fixed";
   const baseRent = a.rent_schedule.length > 0 ? a.rent_schedule[0].rent_psf : 0;
+  const rentRates: number[] = new Array(termPeriods.length).fill(baseRent);
   
   if (escalationType === "fixed") {
     // Fixed escalation: use fixed_escalation_percentage or fall back to rent_schedule escalation_percentage
     const fixedEscalationRate = a.rent_escalation?.fixed_escalation_percentage ?? 
                                  (a.rent_schedule[0]?.escalation_percentage ?? 0);
     
-    for (const y of years) {
-      const ys = new Date(`${y}-01-01T00:00:00`);
-      const ye = new Date(`${y}-12-31T23:59:59`);
-      const commencement = new Date(a.key_dates.commencement);
-      const expiration = new Date(a.key_dates.expiration);
-      
-      const months = overlappingMonths(commencement, expiration, ys, ye);
-      if (months === 0) continue;
-      
-      // Calculate escalated rent for this year
-      const yearsSinceCommencement = y - commencement.getFullYear();
-      const escalatedRate = baseRent * Math.pow(1 + fixedEscalationRate, yearsSinceCommencement);
-      const annualRentForMonths = (escalatedRate * rsf * months) / 12;
-      addToYear(y, "base_rent", annualRentForMonths);
+    for (const period of termPeriods) {
+      const escalatedRate = baseRent * Math.pow(1 + fixedEscalationRate, period.index);
+      rentRates[period.index] = escalatedRate;
+      const annualRentForMonths = (escalatedRate * rsf * period.months) / 12;
+      addToIndex(period.index, "base_rent", annualRentForMonths);
     }
   } else if (escalationType === "custom" && a.rent_escalation?.escalation_periods) {
-    // Custom escalation: use escalation periods to determine rate for each year
-    const commencementDate = new Date(a.key_dates.commencement);
+    // Custom escalation: use escalation periods to determine rate for each term year
     const rentLookup = buildCustomEscalationLookup(
       baseRent,
-      years,
-      commencementDate,
+      termPeriods,
       a.rent_escalation.escalation_periods
     );
 
-    for (const y of years) {
-      const ys = new Date(`${y}-01-01T00:00:00`);
-      const ye = new Date(`${y}-12-31T23:59:59`);
-      const commencement = new Date(a.key_dates.commencement);
-      const expiration = new Date(a.key_dates.expiration);
-      
-      const months = overlappingMonths(commencement, expiration, ys, ye);
-      if (months === 0) continue;
-      
-      const periodIndex = rentLookup.yearToPeriodIndex.get(y);
-      if (periodIndex === undefined || rentLookup.periodFirstYear[periodIndex] === undefined) {
-        const annualRentForMonths = (baseRent * rsf * months) / 12;
-        addToYear(y, "base_rent", annualRentForMonths);
+    for (const period of termPeriods) {
+      const periodIndex = rentLookup.termYearToPeriodIndex.get(period.index);
+      if (periodIndex === undefined || rentLookup.periodFirstTermYear[periodIndex] === undefined) {
+        const annualRentForMonths = (baseRent * rsf * period.months) / 12;
+        addToIndex(period.index, "base_rent", annualRentForMonths);
         continue;
       }
 
       const escalationRate = rentLookup.sortedPeriods[periodIndex].escalation_percentage;
-      const yearsSincePeriodStart = y - (rentLookup.periodFirstYear[periodIndex] as number);
+      const yearsSincePeriodStart = period.index - (rentLookup.periodFirstTermYear[periodIndex] as number);
       const baseAtStart = rentLookup.periodBaseAtStart[periodIndex];
       const escalatedRate = baseAtStart * Math.pow(1 + escalationRate, yearsSincePeriodStart);
-      const annualRentForMonths = (escalatedRate * rsf * months) / 12;
-      addToYear(y, "base_rent", annualRentForMonths);
+      rentRates[period.index] = escalatedRate;
+      const annualRentForMonths = (escalatedRate * rsf * period.months) / 12;
+      addToIndex(period.index, "base_rent", annualRentForMonths);
     }
   } else {
     // Fallback: use old rent_schedule structure for backward compatibility
-    for (const r of a.rent_schedule) {
-      const ps = new Date(r.period_start);
-      const pe = new Date(r.period_end);
-      const periodStartYear = ps.getFullYear();
-      
-      for (const y of years) {
-        const ys = new Date(`${y}-01-01T00:00:00`);
-        const ye = new Date(`${y}-12-31T23:59:59`);
-        const months = overlappingMonths(ps, pe, ys, ye);
-        if (months === 0) continue;
-        
-        // Calculate escalated rent for this year within the period
-        const yearsInPeriod = y - periodStartYear;
-        const escalationRate = r.escalation_percentage ?? 0;
-        const escalatedRate = r.rent_psf * Math.pow(1 + escalationRate, yearsInPeriod);
-        const annualRentForMonths = (escalatedRate * rsf * months) / 12;
-        addToYear(y, "base_rent", annualRentForMonths);
-      }
+    const schedulePeriods = a.rent_schedule.map((period) => ({
+      ...period,
+      start: parseDateOnly(period.period_start) ?? new Date(period.period_start),
+      end: parseDateOnly(period.period_end) ?? new Date(period.period_end),
+    }));
+
+    for (const period of termPeriods) {
+      const match = schedulePeriods.find((r) => period.start >= r.start && period.start <= r.end);
+      if (!match) continue;
+      const periodStartIndex = getTermYearIndexForDate(commencement, match.start);
+      const yearsInPeriod = Math.max(0, period.index - periodStartIndex);
+      const escalationRate = match.escalation_percentage ?? 0;
+      const escalatedRate = match.rent_psf * Math.pow(1 + escalationRate, yearsInPeriod);
+      rentRates[period.index] = escalatedRate;
+      const annualRentForMonths = (escalatedRate * rsf * period.months) / 12;
+      addToIndex(period.index, "base_rent", annualRentForMonths);
     }
   }
 
@@ -462,34 +492,31 @@ export function buildAnnualCashflow(a: AnalysisMeta): AnnualLine[] {
   
   const opExEscalationType = a.operating.escalation_type || "fixed";
   const method = a.operating.escalation_method ?? "fixed"; // Keep for backward compatibility
-  const startYear = new Date(a.key_dates.commencement).getFullYear();
-
-  // Apply Abatement - handle both "at_commencement" and "custom" modes
-  const abatementType = a.concessions?.abatement_type || "at_commencement";
-  const commencementDate = new Date(a.key_dates.commencement);
-  const commencementYear = commencementDate.getFullYear();
-  const commencementMonth = commencementDate.getMonth(); // 0-11
+  const commencementYear = commencement.getFullYear();
+  const baseYear = a.base_year ?? commencementYear;
+  const baseYearIndex = Math.max(0, baseYear - commencementYear);
   const opExLookup =
     opExEscalationType === "custom" && a.operating.escalation_periods
-      ? buildCustomEscalationLookup(baseOp, years, commencementDate, a.operating.escalation_periods)
+      ? buildCustomEscalationLookup(baseOp, termPeriods, a.operating.escalation_periods)
       : undefined;
+  const escalatedOpByTermIndex: number[] = new Array(termPeriods.length).fill(baseOp);
 
-  for (const y of years) {
+  for (const period of termPeriods) {
     let escalatedOp: number;
-    
+    const idx = period.index;
+
     if (opExEscalationType === "fixed") {
       // Fixed escalation: use escalation_value
       const value = a.operating.escalation_value ?? 0;
       const cap = a.operating.escalation_cap;
-      const yearsSinceStart = y - startYear;
-      escalatedOp = escalate(baseOp, yearsSinceStart, method, value, cap);
+      escalatedOp = escalate(baseOp, idx, method, value, cap);
     } else if (opExEscalationType === "custom" && a.operating.escalation_periods && opExLookup) {
-      const periodIndex = opExLookup.yearToPeriodIndex.get(y);
-      if (periodIndex === undefined || opExLookup.periodFirstYear[periodIndex] === undefined) {
+      const periodIndex = opExLookup.termYearToPeriodIndex.get(idx);
+      if (periodIndex === undefined || opExLookup.periodFirstTermYear[periodIndex] === undefined) {
         escalatedOp = baseOp;
       } else {
         const escalationRate = opExLookup.sortedPeriods[periodIndex].escalation_percentage;
-        const yearsSincePeriodStart = y - (opExLookup.periodFirstYear[periodIndex] as number);
+        const yearsSincePeriodStart = idx - (opExLookup.periodFirstTermYear[periodIndex] as number);
         const baseAtStart = opExLookup.periodBaseAtStart[periodIndex];
         escalatedOp = baseAtStart * Math.pow(1 + escalationRate, yearsSincePeriodStart);
         if (a.operating.escalation_cap) {
@@ -501,26 +528,24 @@ export function buildAnnualCashflow(a: AnalysisMeta): AnnualLine[] {
       // Fallback: use old escalation_method structure
       const value = a.operating.escalation_value ?? 0;
       const cap = a.operating.escalation_cap;
-      const yearsSinceStart = y - startYear;
-      escalatedOp = escalate(baseOp, yearsSinceStart, method, value, cap);
+      escalatedOp = escalate(baseOp, idx, method, value, cap);
     }
-    
+
+    escalatedOpByTermIndex[idx] = escalatedOp;
+
     if (a.lease_type === "FS") {
-      const baseYear = a.base_year ?? startYear;
-      const baseYearIndex = Math.max(0, y - baseYear);
-      // For FS, calculate base year OpEx using the same escalation logic
       let baseYearOp: number;
       if (opExEscalationType === "fixed") {
         const value = a.operating.escalation_value ?? 0;
         const cap = a.operating.escalation_cap;
-        baseYearOp = escalate(baseOp, baseYearIndex, method, value, cap);
+        baseYearOp = escalate(baseOp, Math.max(0, idx - baseYearIndex), method, value, cap);
       } else if (opExEscalationType === "custom" && a.operating.escalation_periods && opExLookup) {
-        const periodIndex = opExLookup.yearToPeriodIndex.get(baseYear);
-        if (periodIndex === undefined || opExLookup.periodFirstYear[periodIndex] === undefined) {
+        const periodIndex = opExLookup.termYearToPeriodIndex.get(baseYearIndex);
+        if (periodIndex === undefined || opExLookup.periodFirstTermYear[periodIndex] === undefined) {
           baseYearOp = baseOp;
         } else {
           const escalationRate = opExLookup.sortedPeriods[periodIndex].escalation_percentage;
-          const yearsSincePeriodStart = baseYear - (opExLookup.periodFirstYear[periodIndex] as number);
+          const yearsSincePeriodStart = baseYearIndex - (opExLookup.periodFirstTermYear[periodIndex] as number);
           const baseAtStart = opExLookup.periodBaseAtStart[periodIndex];
           baseYearOp = baseAtStart * Math.pow(1 + escalationRate, yearsSincePeriodStart);
           if (a.operating.escalation_cap) {
@@ -531,86 +556,64 @@ export function buildAnnualCashflow(a: AnalysisMeta): AnnualLine[] {
       } else {
         const value = a.operating.escalation_value ?? 0;
         const cap = a.operating.escalation_cap;
-        baseYearOp = escalate(baseOp, baseYearIndex, method, value, cap);
+        baseYearOp = escalate(baseOp, Math.max(0, idx - baseYearIndex), method, value, cap);
       }
-      
+
       // FS passthrough: tenant pays opex increases above base year
       const passthrough = Math.max(0, escalatedOp - baseYearOp) * rsf;
-      addToYear(y, "operating", passthrough);
+      addToIndex(idx, "operating", passthrough);
     } else {
       // NNN lease: tenant pays all opex
       const passthrough = escalatedOp * rsf;
-      addToYear(y, "operating", passthrough);
+      addToIndex(idx, "operating", passthrough);
     }
+  }
 
-    // Apply abatement for this year
-    if (abatementType === "at_commencement") {
-      // Apply all free rent months at commencement
-      const freeMonths = a.concessions?.abatement_free_rent_months ?? 0;
-      const abatementAppliesTo = a.concessions?.abatement_applies_to || "base_only";
-      
-      if (freeMonths > 0 && y === commencementYear) {
-        // Find the rent rate at commencement (first period)
-        const firstPeriod = a.rent_schedule[0];
-        if (firstPeriod) {
-          const rentAtCommencement = firstPeriod.rent_psf;
-          const monthsInYear = Math.min(freeMonths, 12 - commencementMonth);
-          const baseAbateAmt = (rentAtCommencement * rsf * monthsInYear) / 12;
-          addToYear(y, "abatement_credit", -baseAbateAmt);
-          
-          // If abatement applies to base_plus_nnn, also abate operating expenses
-          if (abatementAppliesTo === "base_plus_nnn") {
-            const opAbateAmt = (baseOp * rsf * monthsInYear) / 12;
-            addToYear(y, "abatement_credit", -opAbateAmt);
-          }
+  // Apply Abatement - handle both "at_commencement" and "custom" modes
+  const abatementType = a.concessions?.abatement_type || "at_commencement";
+
+  if (abatementType === "at_commencement") {
+    const freeMonths = a.concessions?.abatement_free_rent_months ?? 0;
+    const abatementAppliesTo = a.concessions?.abatement_applies_to || "base_only";
+
+    if (freeMonths > 0) {
+      let remaining = freeMonths;
+      let idx = 0;
+      while (remaining > 0 && idx < termPeriods.length) {
+        const monthsInPeriod = Math.min(remaining, termPeriods[idx].months);
+        const rentRate = rentRates[idx] ?? baseRent;
+        const baseAbateAmt = (rentRate * rsf * monthsInPeriod) / 12;
+        addToIndex(idx, "abatement_credit", -baseAbateAmt);
+
+        if (abatementAppliesTo === "base_plus_nnn") {
+          const opRate = escalatedOpByTermIndex[idx] ?? baseOp;
+          const opAbateAmt = (opRate * rsf * monthsInPeriod) / 12;
+          addToIndex(idx, "abatement_credit", -opAbateAmt);
         }
+
+        remaining -= monthsInPeriod;
+        idx += 1;
       }
-    } else if (abatementType === "custom" && a.concessions?.abatement_periods) {
-      // Apply abatement based on custom periods
-      for (const abatementPeriod of a.concessions.abatement_periods) {
-        const apStart = new Date(abatementPeriod.period_start);
-        const apEnd = new Date(abatementPeriod.period_end);
-        const apStartYear = apStart.getFullYear();
-        const apEndYear = apEnd.getFullYear();
-        
-        // Check if this year overlaps with the abatement period
-        if (y >= apStartYear && y <= apEndYear) {
-          const ys = new Date(`${y}-01-01T00:00:00`);
-          const ye = new Date(`${y}-12-31T23:59:59`);
-          const overlapStart = apStart > ys ? apStart : ys;
-          const overlapEnd = apEnd < ye ? apEnd : ye;
-          
-          if (overlapStart <= overlapEnd) {
-            // Calculate months of overlap
-            const overlapMonths = overlappingMonths(overlapStart, overlapEnd, ys, ye);
-            const freeMonths = abatementPeriod.free_rent_months;
-            
-            if (overlapMonths > 0 && freeMonths > 0) {
-              // Find the rent rate for this year (from rent schedule)
-              let rentRate = 0;
-              for (const r of a.rent_schedule) {
-                const rStart = new Date(r.period_start);
-                const rEnd = new Date(r.period_end);
-                if (y >= rStart.getFullYear() && y <= rEnd.getFullYear()) {
-                  const yearsInPeriod = y - rStart.getFullYear();
-                  const escalationRate = r.escalation_percentage ?? 0;
-                  rentRate = r.rent_psf * Math.pow(1 + escalationRate, yearsInPeriod);
-                  break;
-                }
-              }
-              
-              // Apply abatement for the overlapping months
-              const monthsToAbate = Math.min(freeMonths, overlapMonths);
-              const baseAbateAmt = (rentRate * rsf * monthsToAbate) / 12;
-              addToYear(y, "abatement_credit", -baseAbateAmt);
-              
-              // If abatement applies to base_plus_nnn, also abate operating expenses
-              if (abatementPeriod.abatement_applies_to === "base_plus_nnn") {
-                const opAbateAmt = (escalatedOp * rsf * monthsToAbate) / 12;
-                addToYear(y, "abatement_credit", -opAbateAmt);
-              }
-            }
-          }
+    }
+  } else if (abatementType === "custom" && a.concessions?.abatement_periods) {
+    for (const abatementPeriod of a.concessions.abatement_periods) {
+      const apStart = parseDateOnly(abatementPeriod.period_start) ?? new Date(abatementPeriod.period_start);
+      const apEnd = parseDateOnly(abatementPeriod.period_end) ?? new Date(abatementPeriod.period_end);
+      const freeMonths = abatementPeriod.free_rent_months;
+
+      for (const period of termPeriods) {
+        const overlapMonths = overlappingMonths(apStart, apEnd, period.start, period.end);
+        if (overlapMonths <= 0 || freeMonths <= 0) continue;
+
+        const monthsToAbate = Math.min(freeMonths, overlapMonths);
+        const rentRate = rentRates[period.index] ?? baseRent;
+        const baseAbateAmt = (rentRate * rsf * monthsToAbate) / 12;
+        addToIndex(period.index, "abatement_credit", -baseAbateAmt);
+
+        if (abatementPeriod.abatement_applies_to === "base_plus_nnn") {
+          const opRate = escalatedOpByTermIndex[period.index] ?? baseOp;
+          const opAbateAmt = (opRate * rsf * monthsToAbate) / 12;
+          addToIndex(period.index, "abatement_credit", -opAbateAmt);
         }
       }
     }
@@ -622,10 +625,9 @@ export function buildAnnualCashflow(a: AnalysisMeta): AnnualLine[] {
     const stalls = a.parking.stalls;
     const pvRaw = a.parking.escalation_value ?? 0;
     const pv = pvRaw > 1 ? pvRaw / 100 : pvRaw;
-    for (let i = 0; i < years.length; i++) {
-      const y = years[i];
+    for (let i = 0; i < termPeriods.length; i++) {
       const escalatedMonthly = escalate(pr, i, "fixed", pv);
-      addToYear(y, "parking", escalatedMonthly * 12 * stalls);
+      addToIndex(i, "parking", escalatedMonthly * termPeriods[i].months * stalls);
     }
   }
 
@@ -633,24 +635,21 @@ export function buildAnnualCashflow(a: AnalysisMeta): AnnualLine[] {
   if (a.concessions.ti_actual_build_cost_psf !== undefined && a.concessions.ti_allowance_psf !== undefined) {
     const shortfall = Math.max(0, (a.concessions.ti_actual_build_cost_psf - (a.concessions.ti_allowance_psf || 0)) * rsf);
     if (shortfall > 0 && lines.length > 0) {
-      const firstYearRow = lines.find((r) => r.year === startYear);
-      if (firstYearRow) {
-        firstYearRow.ti_shortfall = shortfall;
-      }
+      lines[0].ti_shortfall = shortfall;
     }
   }
 
   // Transaction costs (one-time cost in year 1)
   if (a.transaction_costs?.total) {
-    const firstYearRow = lines.find((r) => r.year === startYear);
-    if (firstYearRow) {
-      firstYearRow.transaction_costs = a.transaction_costs.total;
+    if (lines.length > 0) {
+      lines[0].transaction_costs = a.transaction_costs.total;
     }
   }
 
   // Amortized costs (if financing settings enabled)
   if (a.financing) {
-    const termYears = (new Date(a.key_dates.expiration).getTime() - new Date(a.key_dates.commencement).getTime()) / (1000 * 60 * 60 * 24 * 365.25);
+    const totalMonths = termPeriods.reduce((sum, period) => sum + period.months, 0);
+    const termYears = totalMonths / 12;
     
     // Calculate amortized amounts per year
     const amortizedAmounts: number[] = [];
@@ -674,9 +673,9 @@ export function buildAnnualCashflow(a: AnalysisMeta): AnnualLine[] {
           // Find rent rate for the period
           let rentRate = 0;
           for (const r of a.rent_schedule) {
-            const rStart = new Date(r.period_start);
-            const rEnd = new Date(r.period_end);
-            const periodStart = new Date(period.period_start);
+            const rStart = parseDateOnly(r.period_start) ?? new Date(r.period_start);
+            const rEnd = parseDateOnly(r.period_end) ?? new Date(r.period_end);
+            const periodStart = parseDateOnly(period.period_start) ?? new Date(period.period_start);
             if (periodStart >= rStart && periodStart <= rEnd) {
               rentRate = r.rent_psf;
               break;
@@ -696,24 +695,20 @@ export function buildAnnualCashflow(a: AnalysisMeta): AnnualLine[] {
         // PV-based amortization
         const rate = a.financing.interest_rate;
         const annualPayment = totalToAmortize * (rate / (1 - Math.pow(1 + rate, -termYears)));
-        for (let i = 0; i < Math.ceil(termYears); i++) {
+        for (let i = 0; i < Math.min(Math.ceil(termYears), lines.length); i++) {
           amortizedAmounts.push(annualPayment);
         }
       } else {
         // Straight-line amortization
         const annualAmount = totalToAmortize / termYears;
-        for (let i = 0; i < Math.ceil(termYears); i++) {
+        for (let i = 0; i < Math.min(Math.ceil(termYears), lines.length); i++) {
           amortizedAmounts.push(annualAmount);
         }
       }
       
       // Apply amortized amounts to cashflow
       for (let i = 0; i < Math.min(amortizedAmounts.length, lines.length); i++) {
-        const yearIndex = startYear + i;
-        const row = lines.find((r) => r.year === yearIndex);
-        if (row) {
-          row.amortized_costs = amortizedAmounts[i];
-        }
+        lines[i].amortized_costs = amortizedAmounts[i];
       }
     }
   }
@@ -891,18 +886,14 @@ const YearTable = React.memo(function YearTable({ lines, rsf, meta }: { lines: A
   const fmtPSF = (value: number) => `$${(value || 0).toFixed(2)}/SF`;
   
   // Calculate start date for each year
-  const getYearStartDate = (year: number): string | null => {
+  const getYearStartDate = (yearIndex: number): string | null => {
     if (!meta?.key_dates?.commencement) return null;
-    const commencement = new Date(meta.key_dates.commencement);
-    if (isNaN(commencement.getTime())) return null;
-    
-    // Find the first year in the cashflow
-    const firstYear = lines.length > 0 ? lines[0].year : year;
-    const yearOffset = year - firstYear;
-    
-    // Calculate start date for this year
+    const commencement = parseDateOnly(meta.key_dates.commencement);
+    if (!commencement) return null;
+
+    // Calculate start date for this term year
     const startDate = new Date(commencement);
-    startDate.setFullYear(commencement.getFullYear() + yearOffset);
+    startDate.setFullYear(commencement.getFullYear() + yearIndex);
     
     // Format as MM/YYYY
     const month = (startDate.getMonth() + 1).toString().padStart(2, '0');
@@ -915,7 +906,7 @@ const YearTable = React.memo(function YearTable({ lines, rsf, meta }: { lines: A
       <table className="w-full text-sm">
         <thead className="bg-muted/50">
           <tr>
-            <th className="text-left p-2">Year</th>
+            <th className="text-left p-2">Term Year</th>
             <th className="text-right p-2" title="Annual base rent">Base Rent</th>
             <th className="text-right p-2" title="Base rent per square foot per year">Base Rent $/SF</th>
             <th
@@ -960,9 +951,8 @@ const YearTable = React.memo(function YearTable({ lines, rsf, meta }: { lines: A
                   <div className="flex flex-col gap-1">
                     <div className="flex items-center gap-2">
                       {(() => {
-                        const yearNum = idx + 1;
-                        const startDate = getYearStartDate(r.year);
-                        return startDate ? `YR ${yearNum} (${startDate})` : `YR ${yearNum}`;
+                        const startDate = getYearStartDate(idx);
+                        return startDate ? `YR ${r.year} (${startDate})` : `YR ${r.year}`;
                       })()}
                       {isBreakEven && (
                         <span className="text-xs bg-yellow-200 text-yellow-800 px-1.5 py-0.5 rounded" title="Break-even year">
@@ -970,7 +960,7 @@ const YearTable = React.memo(function YearTable({ lines, rsf, meta }: { lines: A
                         </span>
                       )}
                     </div>
-                    <div className="text-xs text-muted-foreground">{r.year}</div>
+                    <div className="text-xs text-muted-foreground">Term Year {r.year}</div>
                   </div>
                 </td>
                 <td className="p-2 text-right">{fmtMoney(r.base_rent)}</td>
@@ -1261,7 +1251,7 @@ export default function LeaseAnalyzerApp({
           if (storedAnalyses.length > 0) {
             setAnalyses(storedAnalyses);
           } else {
-            const today = new Date().toISOString().split("T")[0];
+            const today = formatDateOnly(new Date());
             const demoAnalysis: AnalysisMeta = {
               id: nanoid(),
               name: "David Barbeito CPA PA",
@@ -1272,11 +1262,9 @@ export default function LeaseAnalyzerApp({
               lease_type: "FS" as LeaseType,
               key_dates: {
                 commencement: today,
-                expiration: new Date(
-                  Date.now() + 365 * 24 * 60 * 60 * 1000 * 5
-                )
-                  .toISOString()
-                  .split("T")[0],
+                expiration: formatDateOnly(
+                  new Date(Date.now() + 365 * 24 * 60 * 60 * 1000 * 5)
+                ),
               },
               operating: {
                 est_op_ex_psf: 15.5,
@@ -1286,9 +1274,9 @@ export default function LeaseAnalyzerApp({
               rent_schedule: [
                 {
                   period_start: today,
-                  period_end: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000)
-                    .toISOString()
-                    .split("T")[0],
+                  period_end: formatDateOnly(
+                    new Date(Date.now() + 365 * 24 * 60 * 60 * 1000)
+                  ),
                   rent_psf: 32.0,
                   escalation_percentage: 0.03,
                 },
@@ -1373,7 +1361,7 @@ export default function LeaseAnalyzerApp({
               hasBackup: false,
             });
           } else {
-            const today = new Date().toISOString().split("T")[0];
+            const today = formatDateOnly(new Date());
             const demoAnalysis: AnalysisMeta = {
               id: nanoid(),
               name: "David Barbeito CPA PA",
@@ -1384,11 +1372,9 @@ export default function LeaseAnalyzerApp({
               lease_type: "FS" as LeaseType,
               key_dates: {
                 commencement: today,
-                expiration: new Date(
-                  Date.now() + 365 * 24 * 60 * 60 * 1000 * 5
-                )
-                  .toISOString()
-                  .split("T")[0],
+                expiration: formatDateOnly(
+                  new Date(Date.now() + 365 * 24 * 60 * 60 * 1000 * 5)
+                ),
               },
               operating: {
                 est_op_ex_psf: 15.5,
@@ -1398,9 +1384,9 @@ export default function LeaseAnalyzerApp({
               rent_schedule: [
                 {
                   period_start: today,
-                  period_end: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000)
-                    .toISOString()
-                    .split("T")[0],
+                  period_end: formatDateOnly(
+                    new Date(Date.now() + 365 * 24 * 60 * 60 * 1000)
+                  ),
                   rent_psf: 32.0,
                   escalation_percentage: 0.03,
                 },
@@ -1455,7 +1441,7 @@ export default function LeaseAnalyzerApp({
             setLastSaved(new Date().toISOString());
           } else {
             // No local data, create demo
-            const today = new Date().toISOString().split("T")[0];
+            const today = formatDateOnly(new Date());
             const demoAnalysis: AnalysisMeta = {
               id: nanoid(),
               name: "Demo Analysis",
@@ -1466,11 +1452,9 @@ export default function LeaseAnalyzerApp({
               lease_type: "FS" as LeaseType,
               key_dates: {
                 commencement: today,
-                expiration: new Date(
-                  Date.now() + 365 * 24 * 60 * 60 * 1000 * 5
-                )
-                  .toISOString()
-                  .split("T")[0],
+                expiration: formatDateOnly(
+                  new Date(Date.now() + 365 * 24 * 60 * 60 * 1000 * 5)
+                ),
               },
               operating: {
           escalation_type: "fixed",
@@ -1565,7 +1549,7 @@ export default function LeaseAnalyzerApp({
     console.log('🔧 createNewAnalysis called');
     try {
       const id = nanoid();
-      const today = new Date().toISOString().split('T')[0];
+      const today = formatDateOnly(new Date());
       console.log('🔧 Generated ID:', id);
       
       const newAnalysis: AnalysisMeta = {
@@ -1624,22 +1608,16 @@ export default function LeaseAnalyzerApp({
       // This prevents race conditions where selectedAnalysis might be null
       setPendingNewAnalysisId(id);
       
-      // Update state and immediately save to storage
+      // Update state; persistence handled by auto-save
       setAnalyses((prev) => {
         const updated = [newAnalysis, ...prev];
         console.log('🔧 Updated analyses array:', updated);
         
-        // Save to storage immediately
-        try {
-          storage.save(updated);
-          // Also save to Supabase if available
-          if (supabase && supabaseUser) {
-            upsertAnalysesForUser(supabase, supabaseUser.id, updated).catch((error) =>
-              console.error("Failed to sync new analysis:", error)
-            );
-          }
-        } catch (error) {
-          console.error("Failed to save new analysis:", error);
+        // Also save to Supabase if available (async)
+        if (supabase && supabaseUser) {
+          upsertAnalysesForUser(supabase, supabaseUser.id, updated).catch((error) =>
+            console.error("Failed to sync new analysis:", error)
+          );
         }
         
         return updated;
@@ -1663,8 +1641,11 @@ export default function LeaseAnalyzerApp({
     
     try {
       // Calculate original term in months
-      const commencement = new Date(duplicateSourceAnalysis.key_dates.commencement);
-      const expiration = new Date(duplicateSourceAnalysis.key_dates.expiration);
+      const commencement = parseDateOnly(duplicateSourceAnalysis.key_dates.commencement);
+      const expiration = parseDateOnly(duplicateSourceAnalysis.key_dates.expiration);
+      if (!commencement || !expiration) {
+        throw new Error("Invalid key dates in duplicate source analysis");
+      }
       const originalTermMonths = Math.round(
         (expiration.getTime() - commencement.getTime()) / (1000 * 60 * 60 * 24 * 30.44)
       );
@@ -1873,11 +1854,15 @@ export default function LeaseAnalyzerApp({
         <DuplicateDialog
           originalName={duplicateSourceAnalysis.name}
           originalRSF={duplicateSourceAnalysis.rsf}
-          originalTerm={Math.round(
-            (new Date(duplicateSourceAnalysis.key_dates.expiration).getTime() - 
-             new Date(duplicateSourceAnalysis.key_dates.commencement).getTime()) / 
-            (1000 * 60 * 60 * 24 * 30.44)
-          )}
+          originalTerm={(() => {
+            const expirationDate = parseDateOnly(duplicateSourceAnalysis.key_dates.expiration);
+            const commencementDate = parseDateOnly(duplicateSourceAnalysis.key_dates.commencement);
+            if (!expirationDate || !commencementDate) return 0;
+            return Math.round(
+              (expirationDate.getTime() - commencementDate.getTime()) /
+                (1000 * 60 * 60 * 24 * 30.44)
+            );
+          })()}
           onConfirm={handleDuplicateConfirm}
           onCancel={handleDuplicateCancel}
         />
@@ -2351,11 +2336,15 @@ function ProposalsBoard({
                     {meta.rsf.toLocaleString()}
                   </Badge>
                   <Badge variant="secondary" title="Term" className="text-center">
-                    {Math.round(
-                      (new Date(meta.key_dates.expiration).getTime() - 
-                       new Date(meta.key_dates.commencement).getTime()) / 
-                      (1000 * 60 * 60 * 24 * 365.25)
-                    )} yrs
+                    {(() => {
+                      const expirationDate = parseDateOnly(meta.key_dates.expiration);
+                      const commencementDate = parseDateOnly(meta.key_dates.commencement);
+                      if (!expirationDate || !commencementDate) return "0";
+                      return Math.round(
+                        (expirationDate.getTime() - commencementDate.getTime()) /
+                          (1000 * 60 * 60 * 24 * 365.25)
+                      ).toString();
+                    })()} yrs
                   </Badge>
                 </div>
                 <div className="grid grid-cols-3 gap-2 mb-4">
@@ -2454,11 +2443,15 @@ function ProposalsBoard({
                       <div className="flex justify-between">
                         <span className="text-muted-foreground">Term:</span>
                         <span className="font-medium">
-                          {Math.round(
-                            (new Date(meta.key_dates.expiration).getTime() - 
-                             new Date(meta.key_dates.commencement).getTime()) / 
-                            (1000 * 60 * 60 * 24 * 365.25)
-                          )} yrs
+                          {(() => {
+                            const expirationDate = parseDateOnly(meta.key_dates.expiration);
+                            const commencementDate = parseDateOnly(meta.key_dates.commencement);
+                            if (!expirationDate || !commencementDate) return "0";
+                            return Math.round(
+                              (expirationDate.getTime() - commencementDate.getTime()) /
+                                (1000 * 60 * 60 * 24 * 365.25)
+                            ).toString();
+                          })()} yrs
                         </span>
                       </div>
                     </div>
@@ -2987,8 +2980,8 @@ function calculateExpiration(
   abatementMonths: number
 ): string {
   if (!commencement) return "";
-  
-  const start = new Date(commencement);
+  const start = parseDateOnly(commencement);
+  if (!start) return "";
   start.setFullYear(start.getFullYear() + years);
   start.setMonth(start.getMonth() + months);
   
@@ -2996,11 +2989,10 @@ function calculateExpiration(
     start.setMonth(start.getMonth() + abatementMonths);
   }
   
-  // Set to last day of the final month
-  start.setMonth(start.getMonth() + 1);
-  start.setDate(0); // Last day of previous month
+  // End date is the day before the same day-of-month
+  start.setDate(start.getDate() - 1);
   
-  return start.toISOString().split('T')[0];
+  return formatDateOnly(start);
 }
 
 // Helper to calculate lease term from existing dates (for backward compatibility)
@@ -3009,9 +3001,9 @@ function calculateLeaseTermFromDates(
   expiration: string
 ): { years: number; months: number } | null {
   if (!commencement || !expiration) return null;
-  
-  const start = new Date(commencement);
-  const end = new Date(expiration);
+  const start = parseDateOnly(commencement);
+  const end = parseDateOnly(expiration);
+  if (!start || !end) return null;
   
   let years = end.getFullYear() - start.getFullYear();
   let months = end.getMonth() - start.getMonth();
@@ -3910,8 +3902,8 @@ function ProposalTab({
           {(() => {
             const abatementMonths = getAbatementMonths(local.concessions);
             if (!local.key_dates.commencement || abatementMonths <= 0) return null;
-            const commencementDate = new Date(local.key_dates.commencement);
-            if (isNaN(commencementDate.getTime())) return null;
+            const commencementDate = parseDateOnly(local.key_dates.commencement);
+            if (!commencementDate) return null;
             const rentStartDate = new Date(commencementDate);
             rentStartDate.setMonth(rentStartDate.getMonth() + abatementMonths);
             return (
@@ -3919,7 +3911,7 @@ function ProposalTab({
                 <Label>Rent Commencement (Calculated)</Label>
                 <Input
                   type="date"
-                  value={rentStartDate.toISOString().split("T")[0]}
+                  value={formatDateOnly(rentStartDate)}
                   readOnly
                   className="bg-muted cursor-not-allowed"
                 />
@@ -4806,7 +4798,7 @@ function exportTableToCSV(lines: AnnualLine[], rsf: number, meta: AnalysisMeta):
   
   // Build CSV headers
   const headers = [
-    'Year',
+    'Term Year',
     'Base Rent',
     'Base Rent $/SF',
     'Op. Pass-Through',
@@ -4821,7 +4813,7 @@ function exportTableToCSV(lines: AnnualLine[], rsf: number, meta: AnalysisMeta):
   
   // Build CSV rows
   const rows = lines.map((r, idx) => [
-    r.year.toString(),
+    `YR ${r.year}`,
     r.base_rent.toFixed(2),
     (rsf > 0 ? (r.base_rent / rsf) : 0).toFixed(2),
     r.operating.toFixed(2),
@@ -4886,7 +4878,7 @@ function exportTableToCSV(lines: AnnualLine[], rsf: number, meta: AnalysisMeta):
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `${meta.name.replace(/[^a-z0-9]/gi, '_')}_cashflow_${new Date().toISOString().split('T')[0]}.csv`;
+    link.download = `${meta.name.replace(/[^a-z0-9]/gi, '_')}_cashflow_${formatDateOnly(new Date())}.csv`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -4918,7 +4910,7 @@ function copyTableToClipboard(lines: AnnualLine[], rsf: number, meta: AnalysisMe
   
   // Build text table
   const headers = [
-    'Year',
+    'Term Year',
     'Base Rent',
     'Base Rent $/SF',
     'Op. Pass-Through',
@@ -4932,7 +4924,7 @@ function copyTableToClipboard(lines: AnnualLine[], rsf: number, meta: AnalysisMe
   ].join('\t');
   
   const rows = lines.map((r, idx) => [
-    r.year.toString(),
+    `YR ${r.year}`,
     fmtMoney(r.base_rent),
     fmtPSF(rsf > 0 ? (r.base_rent / rsf) : 0),
     fmtMoney(r.operating),
@@ -4996,9 +4988,9 @@ const AnalysisTab = React.memo(function AnalysisTab({ lines, meta }: { lines: An
             for (const period of meta.concessions.abatement_periods) {
               let rentRate = 0;
               for (const r of meta.rent_schedule) {
-                const rStart = new Date(r.period_start);
-                const rEnd = new Date(r.period_end);
-                const periodStart = new Date(period.period_start);
+                const rStart = parseDateOnly(r.period_start) ?? new Date(r.period_start);
+                const rEnd = parseDateOnly(r.period_end) ?? new Date(r.period_end);
+                const periodStart = parseDateOnly(period.period_start) ?? new Date(period.period_start);
                 if (periodStart >= rStart && periodStart <= rEnd) {
                   rentRate = r.rent_psf;
                   break;
@@ -5022,16 +5014,13 @@ const AnalysisTab = React.memo(function AnalysisTab({ lines, meta }: { lines: An
     const totalLeaseValue = lines.reduce((sum, line) => sum + line.net_cash_flow, 0);
     const averageAnnualCashflow = lines.length > 0 ? totalLeaseValue / lines.length : 0;
     
-    // Calculate lease term - handle missing dates gracefully
+    // Calculate lease term - prefer explicit term + abatement when available
     let leaseTermYears = 0;
     let leaseTermMonths = 0;
-    if (meta.key_dates.commencement && meta.key_dates.expiration) {
-      const commencement = new Date(meta.key_dates.commencement);
-      const expiration = new Date(meta.key_dates.expiration);
-      if (!isNaN(commencement.getTime()) && !isNaN(expiration.getTime()) && expiration > commencement) {
-        leaseTermYears = (expiration.getTime() - commencement.getTime()) / (1000 * 60 * 60 * 24 * 365.25);
-        leaseTermMonths = Math.round(leaseTermYears * 12);
-      }
+    const leaseTermParts = calculateLeaseTermParts(meta);
+    if (leaseTermParts) {
+      leaseTermYears = leaseTermParts.years + leaseTermParts.months / 12;
+      leaseTermMonths = leaseTermParts.years * 12 + leaseTermParts.months;
     }
     
     // Use actual lease term or fallback to number of years in cashflow
@@ -5054,9 +5043,9 @@ const AnalysisTab = React.memo(function AnalysisTab({ lines, meta }: { lines: An
             for (const period of meta.concessions.abatement_periods) {
               let rentRate = 0;
               for (const r of meta.rent_schedule) {
-                const rStart = new Date(r.period_start);
-                const rEnd = new Date(r.period_end);
-                const periodStart = new Date(period.period_start);
+                const rStart = parseDateOnly(r.period_start) ?? new Date(r.period_start);
+                const rEnd = parseDateOnly(r.period_end) ?? new Date(r.period_end);
+                const periodStart = parseDateOnly(period.period_start) ?? new Date(period.period_start);
                 if (periodStart >= rStart && periodStart <= rEnd) {
                   rentRate = r.rent_psf;
                   break;
@@ -5088,21 +5077,7 @@ const AnalysisTab = React.memo(function AnalysisTab({ lines, meta }: { lines: An
     };
   }, [lines, meta]);
 
-  // Calculate lease term display
-  const leaseTermDisplay = React.useMemo(() => {
-    if (summaryStats.leaseTermYears <= 0 && summaryStats.leaseTermMonths <= 0) {
-      return "Not set";
-    }
-    const years = Math.floor(summaryStats.leaseTermYears);
-    const months = summaryStats.leaseTermMonths % 12;
-    if (years > 0 && months > 0) {
-      return `${years} year${years !== 1 ? 's' : ''}, ${months} month${months !== 1 ? 's' : ''}`;
-    } else if (years > 0) {
-      return `${years} year${years !== 1 ? 's' : ''}`;
-    } else {
-      return `${months} month${months !== 1 ? 's' : ''}`;
-    }
-  }, [summaryStats.leaseTermYears, summaryStats.leaseTermMonths]);
+  const leaseTermDisplay = React.useMemo(() => formatLeaseTerm(meta), [meta]);
 
   return (
     <div className="space-y-4">
@@ -5157,17 +5132,13 @@ const AnalysisTab = React.memo(function AnalysisTab({ lines, meta }: { lines: An
             <div>
               <Label className="text-xs text-muted-foreground">Commencement</Label>
               <div className="text-sm font-semibold">
-                {meta.key_dates.commencement 
-                  ? new Date(meta.key_dates.commencement).toLocaleDateString()
-                  : "Not set"}
+                {formatDateOnlyDisplay(meta.key_dates.commencement)}
               </div>
             </div>
             <div>
               <Label className="text-xs text-muted-foreground">Expiration</Label>
               <div className="text-sm font-semibold">
-                {meta.key_dates.expiration 
-                  ? new Date(meta.key_dates.expiration).toLocaleDateString()
-                  : "Not set"}
+                {formatDateOnlyDisplay(meta.key_dates.expiration)}
               </div>
             </div>
           </div>
@@ -5453,7 +5424,7 @@ function CashflowTab({ lines, meta, proposals }: { lines: AnnualLine[]; meta: An
     const a = baseScenario();
     const lines = buildAnnualCashflow(a);
     // TEST 1: FS base-year passthrough for first year should be ~0
-    const y0 = lines.find((l) => l.year === new Date(a.key_dates.commencement).getFullYear());
+    const y0 = lines[0];
     console.assert((y0?.operating ?? 0) >= -1 && (y0?.operating ?? 0) < 1, "FS base-year year-1 passthrough should be ~0");
 
     // TEST 2: NPV should be finite

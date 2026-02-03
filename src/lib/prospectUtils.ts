@@ -4,6 +4,7 @@
  */
 
 import type { Prospect, ProspectStatus, ProspectPriority, FollowUp } from "./types/prospect";
+import { parseDateOnly } from "./dateOnly";
 
 /**
  * Get color class for prospect status
@@ -73,7 +74,9 @@ export function sortByNextFollowUp(prospects: Prospect[]): Prospect[] {
     if (!a.nextFollowUpDate && !b.nextFollowUpDate) return 0;
     if (!a.nextFollowUpDate) return 1;
     if (!b.nextFollowUpDate) return -1;
-    return new Date(a.nextFollowUpDate).getTime() - new Date(b.nextFollowUpDate).getTime();
+    const aDate = parseDateOnly(a.nextFollowUpDate) ?? new Date(a.nextFollowUpDate);
+    const bDate = parseDateOnly(b.nextFollowUpDate) ?? new Date(b.nextFollowUpDate);
+    return aDate.getTime() - bDate.getTime();
   });
 }
 
@@ -88,7 +91,7 @@ export function getUpcomingFollowUps(prospects: Prospect[]): Prospect[] {
 
   return prospects.filter(prospect => {
     if (!prospect.nextFollowUpDate) return false;
-    const followUpDate = new Date(prospect.nextFollowUpDate);
+    const followUpDate = parseDateOnly(prospect.nextFollowUpDate) ?? new Date(prospect.nextFollowUpDate);
     followUpDate.setHours(0, 0, 0, 0);
     return followUpDate >= today && followUpDate <= sevenDaysFromNow;
   });
@@ -99,7 +102,7 @@ export function getUpcomingFollowUps(prospects: Prospect[]): Prospect[] {
  */
 export function isFollowUpOverdue(prospect: Prospect): boolean {
   if (!prospect.nextFollowUpDate) return false;
-  const followUpDate = new Date(prospect.nextFollowUpDate);
+  const followUpDate = parseDateOnly(prospect.nextFollowUpDate) ?? new Date(prospect.nextFollowUpDate);
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   return followUpDate < today;
@@ -127,7 +130,8 @@ export function getNextFollowUp(prospect: Prospect): FollowUp | null {
   if (incomplete.length === 0) return null;
   
   return incomplete.sort((a, b) => 
-    new Date(a.scheduledDate).getTime() - new Date(b.scheduledDate).getTime()
+    (parseDateOnly(a.scheduledDate) ?? new Date(a.scheduledDate)).getTime() -
+      (parseDateOnly(b.scheduledDate) ?? new Date(b.scheduledDate)).getTime()
   )[0];
 }
 
@@ -136,7 +140,7 @@ export function getNextFollowUp(prospect: Prospect): FollowUp | null {
  */
 export function daysSinceLastContact(prospect: Prospect): number | null {
   if (!prospect.lastContactDate) return null;
-  const lastContact = new Date(prospect.lastContactDate);
+  const lastContact = parseDateOnly(prospect.lastContactDate) ?? new Date(prospect.lastContactDate);
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   lastContact.setHours(0, 0, 0, 0);
