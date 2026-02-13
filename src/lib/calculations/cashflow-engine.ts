@@ -7,6 +7,7 @@
  */
 
 import type { AnalysisMeta, AnnualLine, AnnualLineNumericKey } from "@/types";
+import type { NormalizedBaseMeta } from "@/lib/analysis";
 import { parseDateInput, parseDateOnly } from "../dateOnly";
 
 /** Apply CPI or fixed escalation to a base value for N periods. */
@@ -137,9 +138,11 @@ function buildCustomEscalationLookup(
   };
 }
 
-export function buildAnnualCashflow(a: AnalysisMeta): AnnualLine[] {
-  const commencement = parseDateOnly(a.key_dates.commencement) ?? new Date(a.key_dates.commencement);
-  const expiration = parseDateOnly(a.key_dates.expiration) ?? new Date(a.key_dates.expiration);
+export function buildAnnualCashflow(a: AnalysisMeta, normalized?: NormalizedBaseMeta): AnnualLine[] {
+  const commencementInput = normalized?.dates.commencement ?? a.key_dates.commencement;
+  const expirationInput = normalized?.dates.expiration ?? a.key_dates.expiration;
+  const commencement = parseDateOnly(commencementInput) ?? new Date(commencementInput);
+  const expiration = parseDateOnly(expirationInput) ?? new Date(expirationInput);
 
   if (
     Number.isNaN(commencement.getTime()) ||
@@ -174,6 +177,7 @@ export function buildAnnualCashflow(a: AnalysisMeta): AnnualLine[] {
   const escalationType = a.rent_escalation?.escalation_type || "fixed";
   const baseRent = a.rent_schedule.length > 0 ? a.rent_schedule[0].rent_psf : 0;
   const rentRates: number[] = new Array(termPeriods.length).fill(baseRent);
+  const rentEscalationPeriods = normalized?.rent.escalation_periods ?? a.rent_escalation?.escalation_periods;
   
   if (escalationType === "fixed") {
     // Fixed escalation: use fixed_escalation_percentage or fall back to rent_schedule escalation_percentage
@@ -186,12 +190,12 @@ export function buildAnnualCashflow(a: AnalysisMeta): AnnualLine[] {
       const annualRentForMonths = (escalatedRate * rsf * period.months) / 12;
       addToIndex(period.index, "base_rent", annualRentForMonths);
     }
-  } else if (escalationType === "custom" && a.rent_escalation?.escalation_periods) {
+  } else if (escalationType === "custom" && rentEscalationPeriods && rentEscalationPeriods.length > 0) {
     // Custom escalation: use escalation periods to determine rate for each term year
     const rentLookup = buildCustomEscalationLookup(
       baseRent,
       termPeriods,
-      a.rent_escalation.escalation_periods
+      rentEscalationPeriods
     );
 
     for (const period of termPeriods) {
@@ -252,14 +256,15 @@ export function buildAnnualCashflow(a: AnalysisMeta): AnnualLine[] {
   const commencementYear = commencement.getFullYear();
   const baseYear = a.base_year ?? commencementYear;
   const baseYearIndex = Math.max(0, baseYear - commencementYear);
+  const opExEscalationPeriods = normalized?.operating.escalation_periods ?? a.operating.escalation_periods;
   const opExLookup =
-    opExEscalationType === "custom" && a.operating.escalation_periods
-      ? buildCustomEscalationLookup(baseOp, termPeriods, a.operating.escalation_periods)
+    opExEscalationType === "custom" && opExEscalationPeriods
+      ? buildCustomEscalationLookup(baseOp, termPeriods, opExEscalationPeriods)
       : undefined;
   const manualBase = a.operating.manual_pass_through_psf ?? 0;
   const manualOpExLookup =
-    useManualPassThrough && opExEscalationType === "custom" && a.operating.escalation_periods
-      ? buildCustomEscalationLookup(manualBase, termPeriods, a.operating.escalation_periods)
+    useManualPassThrough && opExEscalationType === "custom" && opExEscalationPeriods
+      ? buildCustomEscalationLookup(manualBase, termPeriods, opExEscalationPeriods)
       : undefined;
 
   const getEscalatedOp = (base: number, idx: number, lookup?: CustomEscalationLookup): number => {
@@ -268,7 +273,7 @@ export function buildAnnualCashflow(a: AnalysisMeta): AnnualLine[] {
       const cap = a.operating.escalation_cap;
       return escalate(base, idx, method, value, cap);
     }
-    if (opExEscalationType === "custom" && a.operating.escalation_periods && lookup) {
+    if (opExEscalationType === "custom" && opExEscalationPeriods && lookup) {
       const periodIndex = lookup.termYearToPeriodIndex.get(idx);
       if (periodIndex === undefined || lookup.periodFirstTermYear[periodIndex] === undefined) {
         return base;
@@ -306,7 +311,7 @@ export function buildAnnualCashflow(a: AnalysisMeta): AnnualLine[] {
         const value = a.operating.escalation_value ?? 0;
         const cap = a.operating.escalation_cap;
         baseYearOp = escalate(baseOp, Math.max(0, idx - baseYearIndex), method, value, cap);
-      } else if (opExEscalationType === "custom" && a.operating.escalation_periods && opExLookup) {
+      } else if (opExEscalationType === "custom" && opExEscalationPeriods && opExLookup) {
         const periodIndex = opExLookup.termYearToPeriodIndex.get(baseYearIndex);
         if (periodIndex === undefined || opExLookup.periodFirstTermYear[periodIndex] === undefined) {
           baseYearOp = baseOp;

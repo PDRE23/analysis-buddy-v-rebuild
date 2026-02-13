@@ -9,6 +9,7 @@
 import type { AnalysisMeta } from "@/types";
 import type { AnalysisResult } from "./analysis-engine";
 import { analyzeLease } from "./analysis-engine";
+import { normalizeAnalysis } from "./analysis";
 
 /**
  * Partial overrides for creating scenario variations
@@ -166,7 +167,8 @@ export function analyzeScenario(
   const merged = mergeAnalysisMeta(base, overrides);
 
   // Call analyzeLease with the merged metadata
-  return analyzeLease(merged);
+  const { normalized } = normalizeAnalysis(merged);
+  return analyzeLease(merged, normalized);
 }
 
 /**

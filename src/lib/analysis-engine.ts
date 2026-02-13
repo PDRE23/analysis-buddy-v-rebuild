@@ -9,6 +9,7 @@
  */
 
 import type { AnalysisMeta, AnnualLine } from "@/types";
+import type { NormalizedBaseMeta } from "./analysis";
 
 import { buildAnnualCashflow } from "./calculations/cashflow-engine";
 import { npv, effectiveRentPSF } from "./calculations/metrics-engine";
@@ -29,12 +30,13 @@ export interface AnalysisResult {
  * @param input - The analysis metadata containing lease terms and settings
  * @returns Analysis result with cashflow lines and computed metrics
  */
-export function analyzeLease(input: AnalysisMeta): AnalysisResult {
+export function analyzeLease(input: AnalysisMeta, normalized?: NormalizedBaseMeta): AnalysisResult {
   // Build annual cashflow
-  const cashflow = buildAnnualCashflow(input);
+  const cashflow = buildAnnualCashflow(input, normalized);
   
   // Calculate lease term years for effective rent calculation
-  const years = calculateLeaseTermYears(input);
+  const normalizedTermMonths = normalized?.dates.term_months_total;
+  const years = normalizedTermMonths ? normalizedTermMonths / 12 : calculateLeaseTermYears(input);
   
   // Compute key metrics
   const discountRate = input.cashflow_settings.discount_rate;

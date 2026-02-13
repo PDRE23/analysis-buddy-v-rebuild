@@ -84,6 +84,8 @@ export interface AnalysisMeta extends Record<string, unknown> {
   rent_escalation?: {
     escalation_type?: "fixed" | "custom";
     fixed_escalation_percentage?: number; // For "fixed" mode
+    fixed_escalation_amount?: number; // Fixed $/year or $/SF/year depending on mode
+    escalation_mode?: "percent" | "amount"; // Disambiguates fixed escalation interpretation
     escalation_periods?: EscalationPeriod[]; // For "custom" mode
   };
   concessions: {

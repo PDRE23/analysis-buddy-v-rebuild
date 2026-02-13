@@ -13,6 +13,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { AnalysisMeta } from "@/types";
 import type { ScenarioOverrides } from "@/lib/scenario-engine";
 import { analyzeScenarios } from "@/lib/scenario-engine";
+import { normalizeAnalysis } from "@/lib/analysis/normalize/normalizeAnalysis";
 
 interface ScenarioComparisonTableProps {
   baseMeta: AnalysisMeta;
@@ -38,6 +39,8 @@ export function ScenarioComparisonTable({ baseMeta }: ScenarioComparisonTablePro
     if (!canComputeScenarios || scenarios.length === 0) return [];
     return analyzeScenarios(baseMeta, scenarios);
   }, [baseMeta, canComputeScenarios, scenarios]);
+
+  const { normalized } = useMemo(() => normalizeAnalysis(baseMeta), [baseMeta]);
 
   const addTestScenarios = () => {
     setScenarios([
@@ -81,6 +84,37 @@ export function ScenarioComparisonTable({ baseMeta }: ScenarioComparisonTablePro
           >
             Add Test Scenarios
           </Button>
+        </div>
+        <div className="mb-4 rounded-lg border bg-muted/20 p-3 text-sm">
+          <div className="mb-2 font-semibold">Derived Lease Summary</div>
+          <dl className="grid gap-x-6 gap-y-2 md:grid-cols-2">
+            <div className="flex items-center justify-between gap-4">
+              <dt className="text-muted-foreground">Commencement</dt>
+              <dd className="font-medium">{normalized.dates.commencement ?? "—"}</dd>
+            </div>
+            <div className="flex items-center justify-between gap-4">
+              <dt className="text-muted-foreground">Rent Start</dt>
+              <dd className="font-medium">{normalized.dates.rent_start ?? "—"}</dd>
+            </div>
+            <div className="flex items-center justify-between gap-4">
+              <dt className="text-muted-foreground">Expiration</dt>
+              <dd className="font-medium">{normalized.dates.expiration ?? "—"}</dd>
+            </div>
+            <div className="flex items-center justify-between gap-4">
+              <dt className="text-muted-foreground">Total Lease Term (months)</dt>
+              <dd className="font-medium">
+                {normalized.dates.term_months_total ?? "—"}
+              </dd>
+            </div>
+            <div className="flex items-center justify-between gap-4">
+              <dt className="text-muted-foreground">Total Abatement (months)</dt>
+              <dd className="font-medium">{normalized.dates.abatement_months_total}</dd>
+            </div>
+            <div className="flex items-center justify-between gap-4">
+              <dt className="text-muted-foreground">Rent Escalation Periods</dt>
+              <dd className="font-medium">{normalized.rent.escalation_periods.length}</dd>
+            </div>
+          </dl>
         </div>
         {!canComputeScenarios ? (
           <p className="text-sm text-yellow-700">

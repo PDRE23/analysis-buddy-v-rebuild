@@ -155,6 +155,30 @@ export const validateAnalysisMeta = (meta: AnalysisMeta): ValidationError[] => {
     errors.push(...validatePositiveNumber(meta.concessions.other_credits, 'Other Credits'));
   }
 
+  if (meta.concessions.abatement_free_rent_months !== undefined) {
+    if (meta.concessions.abatement_free_rent_months < 0) {
+      errors.push({
+        field: 'concessions.abatement_free_rent_months',
+        message: 'Free rent months cannot be negative',
+        type: 'range',
+        severity: 'error'
+      });
+    }
+  }
+
+  if (meta.concessions.abatement_periods) {
+    meta.concessions.abatement_periods.forEach((period, index) => {
+      if (period.free_rent_months < 0) {
+        errors.push({
+          field: `concessions.abatement_periods[${index}].free_rent_months`,
+          message: 'Free rent months cannot be negative',
+          type: 'range',
+          severity: 'error'
+        });
+      }
+    });
+  }
+
   // Validate parking
   if (meta.parking?.monthly_rate_per_stall !== undefined) {
     errors.push(...validatePositiveNumber(meta.parking.monthly_rate_per_stall, 'Parking Rate'));
