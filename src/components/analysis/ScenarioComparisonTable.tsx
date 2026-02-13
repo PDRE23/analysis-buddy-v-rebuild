@@ -10,6 +10,7 @@
 import React, { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { DealSheetSummaryCard } from "@/components/analysis/DealSheetSummaryCard";
 import type { AnalysisMeta } from "@/types";
 import type { ScenarioOverrides } from "@/lib/scenario-engine";
 import { terminationFeeAtMonth, type AmortizationRow } from "@/lib/analysis";
@@ -292,65 +293,15 @@ export function ScenarioComparisonTable({ baseMeta }: ScenarioComparisonTablePro
           <div className="space-y-4">
             <details open className="rounded-lg border bg-muted/10 p-3">
               <summary className="cursor-pointer font-medium">Deal Sheet Summary</summary>
-              {!hasMonthlyEconomics ? (
-                <div className="mt-2 text-xs text-muted-foreground">Not available.</div>
-              ) : (
-                <div className="mt-3 space-y-3">
-                  {scenarioRows.map((row) => {
-                    if (!row.dealSheetSummary) {
-                      return (
-                        <div key={row.name} className="rounded-md border p-3 text-sm text-muted-foreground">
-                          <div className="font-medium text-foreground">{row.name}</div>
-                          <div className="mt-1 text-xs">Not available.</div>
-                        </div>
-                      );
-                    }
-
-                    const summary = row.dealSheetSummary;
-                    return (
-                      <div key={row.name} className="rounded-md border bg-background p-3">
-                        <div className="mb-2 text-sm font-medium">{row.name}</div>
-                        <dl className="grid gap-x-6 gap-y-2 text-sm md:grid-cols-2">
-                          <div className="flex items-center justify-between gap-4">
-                            <dt className="text-muted-foreground">Blended Rate</dt>
-                            <dd className="font-medium">{formatRate(summary.blendedRate)}</dd>
-                          </div>
-                          <div className="flex items-center justify-between gap-4">
-                            <dt className="text-muted-foreground">NPV of Rent</dt>
-                            <dd className="font-medium">{formatCurrency(summary.npvRent)}</dd>
-                          </div>
-                          <div className="flex items-center justify-between gap-4">
-                            <dt className="text-muted-foreground">Total Net Rent</dt>
-                            <dd className="font-medium">{formatCurrency(summary.totalNetRent)}</dd>
-                          </div>
-                          <div className="flex items-center justify-between gap-4">
-                            <dt className="text-muted-foreground">Free Rent Value</dt>
-                            <dd className="font-medium">{formatCurrency(summary.freeRentValue)}</dd>
-                          </div>
-                          <div className="flex items-center justify-between gap-4">
-                            <dt className="text-muted-foreground">Total LL Cost</dt>
-                            <dd className="font-medium">{formatCurrency(summary.totalLlCost)}</dd>
-                          </div>
-                          <div className="flex items-center justify-between gap-4">
-                            <dt className="text-muted-foreground">Unamortized @ 36</dt>
-                            <dd className="font-medium">{formatCurrency(summary.unamortizedAt36)}</dd>
-                          </div>
-                          <div className="flex items-center justify-between gap-4">
-                            <dt className="text-muted-foreground">Termination Fee @ 36</dt>
-                            <dd className="font-medium">{formatCurrency(summary.terminationFeeAt36)}</dd>
-                          </div>
-                        </dl>
-                        {summary.assumptionsLine ? (
-                          <div className="mt-2 text-xs text-muted-foreground">
-                            <span className="font-medium text-foreground">Assumptions:</span>{" "}
-                            {summary.assumptionsLine}
-                          </div>
-                        ) : null}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
+              <div className="mt-3 grid gap-4 md:grid-cols-2">
+                {scenarioRows.map((row) => (
+                  <DealSheetSummaryCard
+                    key={row.name}
+                    title={row.name}
+                    summary={row.dealSheetSummary}
+                  />
+                ))}
+              </div>
             </details>
 
             <details open className="rounded-lg border bg-muted/10 p-3">
