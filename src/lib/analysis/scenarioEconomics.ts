@@ -15,6 +15,8 @@ export type ScenarioEconomicsInputs = {
   concessions?: AnalysisMeta["concessions"];
   transactionCosts?: AnalysisMeta["transaction_costs"];
   financing?: AnalysisMeta["financing"];
+  options?: AnalysisMeta["options"];
+  terminationPenaltyMonths?: number;
 };
 
 export type MonthlyEconomics = {
@@ -25,6 +27,18 @@ export type MonthlyEconomics = {
     schedule: AmortizationRow[];
     totalToAmortize: number;
     rateAnnual: number;
+  };
+  dealCosts: {
+    tiAllowance: number;
+    leasingCommission: number;
+    otherCosts: number;
+    totalLlCost: number;
+  };
+  termination?: {
+    penaltyMonths?: number;
+    feeAt36?: number;
+    feeAtMonth?: (monthIndex: number) => number;
+    feesByMonth?: number[];
   };
   assumptions: ScenarioEconomicsAssumptions;
 };
@@ -99,6 +113,50 @@ function buildAmortizationSummary(
   return { schedule, totalToAmortize, rateAnnual };
 }
 
+function buildDealCosts(scenarioInputs: ScenarioEconomicsInputs): MonthlyEconomics["dealCosts"] {
+  const rsf = scenarioInputs.rsf ?? 0;
+  const concessions = scenarioInputs.concessions ?? {};
+  const transactionCosts = scenarioInputs.transactionCosts ?? {};
+
+  const tiAllowance = (concessions.ti_allowance_psf ?? 0) * rsf;
+  const transactionPartsTotal =
+    (transactionCosts.legal_fees ?? 0) +
+    (transactionCosts.brokerage_fees ?? 0) +
+    (transactionCosts.due_diligence ?? 0) +
+    (transactionCosts.environmental ?? 0) +
+    (transactionCosts.other ?? 0);
+  const transactionTotal = transactionCosts.total ?? transactionPartsTotal;
+  const leasingCommission = transactionCosts.brokerage_fees ?? 0;
+  const otherConcessions = (concessions.moving_allowance ?? 0) + (concessions.other_credits ?? 0);
+  const otherTransaction = Math.max(0, transactionTotal - leasingCommission);
+  const otherCosts = otherConcessions + otherTransaction;
+  const totalLlCost = tiAllowance + leasingCommission + otherCosts;
+
+  return {
+    tiAllowance,
+    leasingCommission,
+    otherCosts,
+    totalLlCost,
+  };
+}
+
+function resolveTerminationPenaltyMonths(scenarioInputs: ScenarioEconomicsInputs): number {
+  const explicitPenalty = scenarioInputs.terminationPenaltyMonths;
+  if (typeof explicitPenalty === "number" && !Number.isNaN(explicitPenalty)) {
+    return explicitPenalty;
+  }
+
+  const terminationOption = scenarioInputs.options?.find((option) => option.type === "Termination");
+  if (!terminationOption) return 0;
+
+  const optionPenalty = terminationOption.fee_months_of_rent ?? 6;
+  if (typeof optionPenalty !== "number" || Number.isNaN(optionPenalty)) {
+    return 6;
+  }
+
+  return optionPenalty;
+}
+
 export function buildScenarioEconomics({
   normalizedBaseMeta,
   scenarioInputs,
@@ -132,12 +190,18 @@ export function buildScenarioEconomics({
   const termMonths = rentSchedule.months.length;
   const blended = blendedRate(rentSchedule.summary.total_net_rent, scenarioInputs.rsf ?? 0, termMonths);
   const amortization = buildAmortizationSummary(scenarioInputs, rentSchedule, assumptions);
+  const dealCosts = buildDealCosts(scenarioInputs);
+  const terminationPenaltyMonths = resolveTerminationPenaltyMonths(scenarioInputs);
 
   return {
     rentSchedule,
     npv,
     blendedRate: blended,
     amortization,
+    dealCosts,
+    termination: {
+      penaltyMonths: terminationPenaltyMonths,
+    },
     assumptions,
   };
 }

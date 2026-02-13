@@ -12,8 +12,10 @@ import type { AnalysisMeta, AnnualLine } from "@/types";
 import type { AnalysisAssumptionsSummary, ScenarioEconomicsAssumptions } from "./analysis/assumptions";
 import type { MonthlyEconomics, ScenarioEconomicsInputs } from "./analysis/scenarioEconomics";
 import type { NormalizedBaseMeta } from "./analysis";
+import type { DealSheetSummary } from "./analysis/dealSheetSummary";
 
 import { buildAssumptionsSummary } from "./analysis/assumptions";
+import { buildDealSheetSummary } from "./analysis/dealSheetSummary";
 import { buildAnnualCashflow } from "./calculations/cashflow-engine";
 import { npv, effectiveRentPSF } from "./calculations/metrics-engine";
 import { normalizeAnalysis } from "./analysis";
@@ -29,6 +31,7 @@ export interface AnalysisResult {
   };
   monthlyEconomics?: MonthlyEconomics;
   assumptionsSummary?: AnalysisAssumptionsSummary;
+  dealSheetSummary?: DealSheetSummary;
 }
 
 /**
@@ -65,6 +68,7 @@ export function analyzeLease(input: AnalysisMeta, normalized?: NormalizedBaseMet
     concessions: input.concessions,
     transactionCosts: input.transaction_costs,
     financing: input.financing,
+    options: input.options,
   };
   const monthlyEconomics = buildScenarioEconomics({
     normalizedBaseMeta,
@@ -72,6 +76,7 @@ export function analyzeLease(input: AnalysisMeta, normalized?: NormalizedBaseMet
     assumptions,
   });
   const assumptionsSummary = buildAssumptionsSummary({ normalized: normalizedBaseMeta, assumptions });
+  const dealSheetSummary = buildDealSheetSummary({ monthlyEconomics, assumptionsSummary });
 
   // Return structured result
   return {
@@ -83,6 +88,7 @@ export function analyzeLease(input: AnalysisMeta, normalized?: NormalizedBaseMet
     },
     monthlyEconomics,
     assumptionsSummary,
+    dealSheetSummary,
   };
 }
 

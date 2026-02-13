@@ -13,6 +13,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { AnalysisMeta } from "@/types";
 import type { ScenarioOverrides } from "@/lib/scenario-engine";
 import { terminationFeeAtMonth, type AmortizationRow } from "@/lib/analysis";
+import { formatAssumptionsLine } from "@/lib/analysis/assumptions";
 import { analyzeScenarios } from "@/lib/scenario-engine";
 import { normalizeAnalysis } from "@/lib/analysis/normalize/normalizeAnalysis";
 import { formatDateOnlyDisplay } from "@/lib/dateOnly";
@@ -27,12 +28,7 @@ interface ScenarioDefinition {
   overrides: ScenarioOverrides;
 }
 
-type DealCostsSummary = {
-  tiAllowance: number;
-  leasingCommission: number;
-  otherCosts: number;
-  totalLlCost: number;
-};
+type DealCostsSummary = MonthlyEconomics["dealCosts"];
 
 export function ScenarioComparisonTable({ baseMeta }: ScenarioComparisonTableProps) {
   const [scenarios, setScenarios] = useState<ScenarioDefinition[]>([]);
@@ -62,20 +58,7 @@ export function ScenarioComparisonTable({ baseMeta }: ScenarioComparisonTablePro
   }, [results]);
 
   const assumptionsLine = useMemo(() => {
-    if (!assumptionsSummary) return "";
-    const parts = [
-      `Discount ${(assumptionsSummary.discountRateAnnual * 100).toFixed(2)}%`,
-      assumptionsSummary.amortRateAnnual !== undefined
-        ? `Amort ${(assumptionsSummary.amortRateAnnual * 100).toFixed(2)}%`
-        : undefined,
-      `Billing ${assumptionsSummary.billingTiming}`,
-      assumptionsSummary.escalationMode
-        ? `Escalation mode ${assumptionsSummary.escalationMode}`
-        : undefined,
-      assumptionsSummary.rounding ? `Rounding ${assumptionsSummary.rounding}` : undefined,
-    ].filter(Boolean) as string[];
-
-    return parts.join(", ");
+    return formatAssumptionsLine(assumptionsSummary);
   }, [assumptionsSummary]);
 
   const overridesByName = useMemo(() => {
@@ -84,20 +67,8 @@ export function ScenarioComparisonTable({ baseMeta }: ScenarioComparisonTablePro
 
   const getDealCostsFromMonthly = (monthlyEconomics?: MonthlyEconomics): DealCostsSummary | undefined => {
     if (!monthlyEconomics) return undefined;
-    const economicsWithCosts = monthlyEconomics as MonthlyEconomics & {
-      dealCosts?: Partial<DealCostsSummary>;
-      deal_costs?: Partial<DealCostsSummary>;
-      costs?: Partial<DealCostsSummary>;
-    };
-    const dealCosts =
-      economicsWithCosts.dealCosts ?? economicsWithCosts.deal_costs ?? economicsWithCosts.costs;
-    if (!dealCosts) return undefined;
-
-    const tiAllowance = dealCosts.tiAllowance;
-    const leasingCommission = dealCosts.leasingCommission;
-    const otherCosts = dealCosts.otherCosts;
-    const totalLlCost = dealCosts.totalLlCost;
-
+    const { dealCosts } = monthlyEconomics;
+    const { tiAllowance, leasingCommission, otherCosts, totalLlCost } = dealCosts;
     if (
       typeof tiAllowance !== "number" ||
       Number.isNaN(tiAllowance) ||
@@ -110,13 +81,7 @@ export function ScenarioComparisonTable({ baseMeta }: ScenarioComparisonTablePro
     ) {
       return undefined;
     }
-
-    return {
-      tiAllowance,
-      leasingCommission,
-      otherCosts,
-      totalLlCost,
-    };
+    return dealCosts;
   };
 
   const scenarioRows = useMemo(() => {
@@ -161,13 +126,19 @@ export function ScenarioComparisonTable({ baseMeta }: ScenarioComparisonTablePro
         })();
 
       const terminationOption = options?.find((option) => option.type === "Termination");
-      const penaltyMonths =
+      const fallbackPenaltyMonths =
         terminationOption?.fee_months_of_rent ?? (terminationOption ? 6 : 0);
+      const penaltyMonths =
+        typeof monthlyEconomics?.termination?.penaltyMonths === "number" &&
+        !Number.isNaN(monthlyEconomics.termination.penaltyMonths)
+          ? monthlyEconomics.termination.penaltyMonths
+          : fallbackPenaltyMonths;
 
       return {
         name,
         result,
         monthlyEconomics,
+        dealSheetSummary: result.dealSheetSummary,
         costs,
         penaltyMonths,
       };
@@ -319,6 +290,69 @@ export function ScenarioComparisonTable({ baseMeta }: ScenarioComparisonTablePro
           <p className="text-sm text-muted-foreground">No scenarios yet.</p>
         ) : (
           <div className="space-y-4">
+            <details open className="rounded-lg border bg-muted/10 p-3">
+              <summary className="cursor-pointer font-medium">Deal Sheet Summary</summary>
+              {!hasMonthlyEconomics ? (
+                <div className="mt-2 text-xs text-muted-foreground">Not available.</div>
+              ) : (
+                <div className="mt-3 space-y-3">
+                  {scenarioRows.map((row) => {
+                    if (!row.dealSheetSummary) {
+                      return (
+                        <div key={row.name} className="rounded-md border p-3 text-sm text-muted-foreground">
+                          <div className="font-medium text-foreground">{row.name}</div>
+                          <div className="mt-1 text-xs">Not available.</div>
+                        </div>
+                      );
+                    }
+
+                    const summary = row.dealSheetSummary;
+                    return (
+                      <div key={row.name} className="rounded-md border bg-background p-3">
+                        <div className="mb-2 text-sm font-medium">{row.name}</div>
+                        <dl className="grid gap-x-6 gap-y-2 text-sm md:grid-cols-2">
+                          <div className="flex items-center justify-between gap-4">
+                            <dt className="text-muted-foreground">Blended Rate</dt>
+                            <dd className="font-medium">{formatRate(summary.blendedRate)}</dd>
+                          </div>
+                          <div className="flex items-center justify-between gap-4">
+                            <dt className="text-muted-foreground">NPV of Rent</dt>
+                            <dd className="font-medium">{formatCurrency(summary.npvRent)}</dd>
+                          </div>
+                          <div className="flex items-center justify-between gap-4">
+                            <dt className="text-muted-foreground">Total Net Rent</dt>
+                            <dd className="font-medium">{formatCurrency(summary.totalNetRent)}</dd>
+                          </div>
+                          <div className="flex items-center justify-between gap-4">
+                            <dt className="text-muted-foreground">Free Rent Value</dt>
+                            <dd className="font-medium">{formatCurrency(summary.freeRentValue)}</dd>
+                          </div>
+                          <div className="flex items-center justify-between gap-4">
+                            <dt className="text-muted-foreground">Total LL Cost</dt>
+                            <dd className="font-medium">{formatCurrency(summary.totalLlCost)}</dd>
+                          </div>
+                          <div className="flex items-center justify-between gap-4">
+                            <dt className="text-muted-foreground">Unamortized @ 36</dt>
+                            <dd className="font-medium">{formatCurrency(summary.unamortizedAt36)}</dd>
+                          </div>
+                          <div className="flex items-center justify-between gap-4">
+                            <dt className="text-muted-foreground">Termination Fee @ 36</dt>
+                            <dd className="font-medium">{formatCurrency(summary.terminationFeeAt36)}</dd>
+                          </div>
+                        </dl>
+                        {summary.assumptionsLine ? (
+                          <div className="mt-2 text-xs text-muted-foreground">
+                            <span className="font-medium text-foreground">Assumptions:</span>{" "}
+                            {summary.assumptionsLine}
+                          </div>
+                        ) : null}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </details>
+
             <details open className="rounded-lg border bg-muted/10 p-3">
               <summary className="cursor-pointer font-medium">Economics (Monthly)</summary>
               {!hasMonthlyEconomics ? (

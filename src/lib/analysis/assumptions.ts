@@ -25,6 +25,21 @@ export type AnalysisAssumptionsSummary = {
   rounding?: "none" | "cents";
 };
 
+export function formatAssumptionsLine(assumptionsSummary?: AnalysisAssumptionsSummary): string {
+  if (!assumptionsSummary) return "";
+  const parts = [
+    `Discount ${(assumptionsSummary.discountRateAnnual * 100).toFixed(2)}%`,
+    assumptionsSummary.amortRateAnnual !== undefined
+      ? `Amort ${(assumptionsSummary.amortRateAnnual * 100).toFixed(2)}%`
+      : undefined,
+    `Billing ${assumptionsSummary.billingTiming}`,
+    assumptionsSummary.escalationMode ? `Escalation mode ${assumptionsSummary.escalationMode}` : undefined,
+    assumptionsSummary.rounding ? `Rounding ${assumptionsSummary.rounding}` : undefined,
+  ].filter(Boolean) as string[];
+
+  return parts.join(", ");
+}
+
 export function buildAssumptionsSummary({
   normalized,
   assumptions,
