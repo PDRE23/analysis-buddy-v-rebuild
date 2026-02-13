@@ -9,10 +9,15 @@
  */
 
 import type { AnalysisMeta, AnnualLine } from "@/types";
+import type { AnalysisAssumptionsSummary, ScenarioEconomicsAssumptions } from "./analysis/assumptions";
+import type { MonthlyEconomics, ScenarioEconomicsInputs } from "./analysis/scenarioEconomics";
 import type { NormalizedBaseMeta } from "./analysis";
 
+import { buildAssumptionsSummary } from "./analysis/assumptions";
 import { buildAnnualCashflow } from "./calculations/cashflow-engine";
 import { npv, effectiveRentPSF } from "./calculations/metrics-engine";
+import { normalizeAnalysis } from "./analysis";
+import { buildScenarioEconomics } from "./analysis/scenarioEconomics";
 import { calculateLeaseTermYears } from "./leaseTermCalculations";
 
 export interface AnalysisResult {
@@ -22,6 +27,8 @@ export interface AnalysisResult {
     npv: number;
     effectiveRentPSF: number;
   };
+  monthlyEconomics?: MonthlyEconomics;
+  assumptionsSummary?: AnalysisAssumptionsSummary;
 }
 
 /**
@@ -42,7 +49,30 @@ export function analyzeLease(input: AnalysisMeta, normalized?: NormalizedBaseMet
   const discountRate = input.cashflow_settings.discount_rate;
   const npvValue = npv(cashflow, discountRate);
   const effectiveRentPSFValue = effectiveRentPSF(cashflow, input.rsf, years);
-  
+
+  const normalizedBaseMeta = normalized ?? normalizeAnalysis(input).normalized;
+  const assumptions: ScenarioEconomicsAssumptions = {
+    discountRateAnnual: input.cashflow_settings.discount_rate,
+    amortRateAnnual: input.financing?.interest_rate,
+    billingTiming: "advance",
+    escalationMode: resolveEscalationMode(input),
+    rounding: "none",
+  };
+  const scenarioInputs: ScenarioEconomicsInputs = {
+    rsf: input.rsf,
+    rentSchedule: input.rent_schedule,
+    rentEscalation: input.rent_escalation,
+    concessions: input.concessions,
+    transactionCosts: input.transaction_costs,
+    financing: input.financing,
+  };
+  const monthlyEconomics = buildScenarioEconomics({
+    normalizedBaseMeta,
+    scenarioInputs,
+    assumptions,
+  });
+  const assumptionsSummary = buildAssumptionsSummary({ normalized: normalizedBaseMeta, assumptions });
+
   // Return structured result
   return {
     cashflow,
@@ -51,6 +81,24 @@ export function analyzeLease(input: AnalysisMeta, normalized?: NormalizedBaseMet
       npv: npvValue,
       effectiveRentPSF: effectiveRentPSFValue,
     },
+    monthlyEconomics,
+    assumptionsSummary,
   };
+}
+
+function resolveEscalationMode(input: AnalysisMeta): ScenarioEconomicsAssumptions["escalationMode"] | undefined {
+  if (input.rent_escalation?.escalation_type === "custom") {
+    return "custom";
+  }
+  if (
+    input.rent_escalation?.escalation_mode === "amount" ||
+    input.rent_escalation?.fixed_escalation_amount !== undefined
+  ) {
+    return "fixed_amount";
+  }
+  if (input.rent_escalation?.fixed_escalation_percentage !== undefined) {
+    return "fixed_percent";
+  }
+  return undefined;
 }
 

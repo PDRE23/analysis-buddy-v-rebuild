@@ -40,6 +40,27 @@ export function ScenarioComparisonTable({ baseMeta }: ScenarioComparisonTablePro
     return analyzeScenarios(baseMeta, scenarios);
   }, [baseMeta, canComputeScenarios, scenarios]);
 
+  const assumptionsSummary = useMemo(() => {
+    if (results.length === 0) return undefined;
+    const baseScenario = results.find(({ name }) => name === "Base Case") ?? results[0];
+    return baseScenario.result.assumptionsSummary;
+  }, [results]);
+
+  const assumptionsLine = useMemo(() => {
+    if (!assumptionsSummary) return "";
+    const parts = [
+      `Discount ${(assumptionsSummary.discountRateAnnual * 100).toFixed(2)}%`,
+      assumptionsSummary.amortRateAnnual !== undefined
+        ? `Amort ${(assumptionsSummary.amortRateAnnual * 100).toFixed(2)}%`
+        : undefined,
+      `Billing ${assumptionsSummary.billingTiming}`,
+      assumptionsSummary.escalationMode ? "Escalation mode fixed amount" : undefined,
+      assumptionsSummary.rounding ? `Rounding ${assumptionsSummary.rounding}` : undefined,
+    ].filter(Boolean) as string[];
+
+    return parts.join(", ");
+  }, [assumptionsSummary]);
+
   const { normalized } = useMemo(() => normalizeAnalysis(baseMeta), [baseMeta]);
 
   const addTestScenarios = () => {
@@ -115,6 +136,12 @@ export function ScenarioComparisonTable({ baseMeta }: ScenarioComparisonTablePro
               <dd className="font-medium">{normalized.rent.escalation_periods.length}</dd>
             </div>
           </dl>
+          {assumptionsSummary ? (
+            <div className="mt-2 text-xs text-muted-foreground">
+              <span className="font-medium text-foreground">Assumptions:</span>{" "}
+              {assumptionsLine}
+            </div>
+          ) : null}
         </div>
         {!canComputeScenarios ? (
           <p className="text-sm text-yellow-700">

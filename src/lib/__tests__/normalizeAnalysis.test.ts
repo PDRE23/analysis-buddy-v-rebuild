@@ -1,6 +1,7 @@
+import type { AnalysisMeta } from "@/types";
 import { normalizeAnalysis } from "@/lib/analysis";
 
-function buildBaseAnalysis() {
+function buildBaseAnalysis(): AnalysisMeta {
   return {
     id: "test-id",
     name: "Test Analysis",
@@ -100,7 +101,7 @@ describe("normalizeAnalysis", () => {
   });
 
   it("uses fixed escalation fallback rules for rent", () => {
-    const useFixed = {
+    const useFixed: AnalysisMeta = {
       ...buildBaseAnalysis(),
       rent_escalation: {
         escalation_type: "fixed",
@@ -116,7 +117,7 @@ describe("normalizeAnalysis", () => {
       ],
     };
 
-    const useSchedule = {
+    const useSchedule: AnalysisMeta = {
       ...buildBaseAnalysis(),
       rent_escalation: {
         escalation_type: "fixed",
@@ -131,7 +132,7 @@ describe("normalizeAnalysis", () => {
       ],
     };
 
-    const useZero = {
+    const useZero: AnalysisMeta = {
       ...buildBaseAnalysis(),
       rent_escalation: {
         escalation_type: "fixed",

@@ -5,7 +5,7 @@ export { npvMonthly } from "./npv";
 export { blendedRate, freeRentValue } from "./effectiveRent";
 export { buildAmortizationSchedule } from "./amortization";
 export { terminationFeeAtMonth } from "./earlyTermination";
-export type { AnalysisAssumptions } from "./assumptions";
+export type { AnalysisAssumptions, AnalysisAssumptionsSummary, ScenarioEconomicsAssumptions } from "./assumptions";
 export type { NormalizedAbatementPeriod } from "./normalized/types";
 export type { NormalizedAnalysisResult } from "./normalized/types";
 export type { NormalizedBaseMeta } from "./normalized/types";
