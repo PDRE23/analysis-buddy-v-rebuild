@@ -9,7 +9,7 @@
 import type { AnalysisMeta } from "@/types";
 import type { AnalysisResult } from "./analysis-engine";
 import { analyzeLease } from "./analysis-engine";
-import { normalizeAnalysis } from "./analysis";
+import { buildTenantStrategySummary, normalizeAnalysis } from "./analysis";
 
 /**
  * Partial overrides for creating scenario variations
@@ -182,8 +182,19 @@ export function analyzeScenarios(
   base: AnalysisMeta,
   scenarios: { name: string; overrides: ScenarioOverrides }[]
 ): { name: string; result: AnalysisResult }[] {
-  return scenarios.map((scenario) => ({
+  const results = scenarios.map((scenario) => ({
     name: scenario.name,
     result: analyzeScenario(base, scenario.overrides),
+  }));
+
+  if (results.length === 0) return results;
+  const baseScenario = results.find(({ name }) => name === "Base Case") ?? results[0];
+
+  return results.map((entry) => ({
+    ...entry,
+    result: {
+      ...entry.result,
+      tenantStrategySummary: buildTenantStrategySummary(entry.result, baseScenario.result),
+    },
   }));
 }

@@ -13,7 +13,14 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DealSheetSummaryCard } from "@/components/analysis/DealSheetSummaryCard";
 import type { AnalysisMeta } from "@/types";
 import type { ScenarioOverrides } from "@/lib/scenario-engine";
-import { terminationFeeAtMonth, type AmortizationRow } from "@/lib/analysis";
+import {
+  buildTenantStrategySummary,
+  freeRentToRateEquivalentPsfYr,
+  terminationFeeAtMonth,
+  termExtensionToAdditionalTiPsf,
+  tiToRateEquivalentPsfYr,
+  type AmortizationRow,
+} from "@/lib/analysis";
 import { formatAssumptionsLine } from "@/lib/analysis/assumptions";
 import { analyzeScenarios } from "@/lib/scenario-engine";
 import { normalizeAnalysis } from "@/lib/analysis/normalize/normalizeAnalysis";
@@ -34,7 +41,7 @@ type DealCostsSummary = MonthlyEconomics["dealCosts"];
 export function ScenarioComparisonTable({ baseMeta }: ScenarioComparisonTableProps) {
   const [scenarios, setScenarios] = useState<ScenarioDefinition[]>([]);
 
-  const { normalized } = useMemo(() => normalizeAnalysis(baseMeta), [baseMeta]);
+  const { normalized, issues } = useMemo(() => normalizeAnalysis(baseMeta), [baseMeta]);
   const hasRentSchedule = baseMeta.rent_schedule.length > 0;
   const hasCommencement = Boolean(baseMeta.key_dates.commencement);
   const hasLeaseTerm = Boolean(
@@ -61,6 +68,8 @@ export function ScenarioComparisonTable({ baseMeta }: ScenarioComparisonTablePro
   const assumptionsLine = useMemo(() => {
     return formatAssumptionsLine(assumptionsSummary);
   }, [assumptionsSummary]);
+
+  const normalizationWarningCount = useMemo(() => issues.length, [issues]);
 
   const overridesByName = useMemo(() => {
     return new Map(scenarios.map((scenario) => [scenario.name, scenario.overrides]));
@@ -142,9 +151,27 @@ export function ScenarioComparisonTable({ baseMeta }: ScenarioComparisonTablePro
         dealSheetSummary: result.dealSheetSummary,
         costs,
         penaltyMonths,
+        rsf: overrides?.rsf ?? baseMeta.rsf,
       };
     });
   }, [baseMeta, overridesByName, results]);
+
+  const tenantStrategyRows = useMemo(() => {
+    if (scenarioRows.length === 0) return [];
+    const baseRow = scenarioRows.find((row) => row.name === "Base Case") ?? scenarioRows[0];
+
+    return scenarioRows
+      .map((row) => ({
+        ...row,
+        tenantStrategySummary: buildTenantStrategySummary(row.result, baseRow.result),
+      }))
+      .sort(
+        (a, b) =>
+          a.tenantStrategySummary.totalOccupancyCostNPV - b.tenantStrategySummary.totalOccupancyCostNPV
+      );
+  }, [scenarioRows]);
+
+  const bestTenantScenario = tenantStrategyRows[0]?.name;
 
   const hasMonthlyEconomics = scenarioRows.some((row) => row.monthlyEconomics);
   const hasAmortization = scenarioRows.some(
@@ -167,6 +194,40 @@ export function ScenarioComparisonTable({ baseMeta }: ScenarioComparisonTablePro
     });
   };
 
+  const formatSignedCurrency = (value: number | undefined, fractionDigits = 0) => {
+    if (value === undefined || Number.isNaN(value)) return "—";
+    const sign = value > 0 ? "+" : value < 0 ? "-" : "";
+    const formatted = Math.abs(value).toLocaleString(undefined, {
+      style: "currency",
+      currency: "USD",
+      minimumFractionDigits: fractionDigits,
+      maximumFractionDigits: fractionDigits,
+    });
+    return `${sign}${formatted}`;
+  };
+
+  const formatPercent = (value: number | undefined, fractionDigits = 1) => {
+    if (value === undefined || Number.isNaN(value)) return "—";
+    return value.toLocaleString(undefined, {
+      style: "percent",
+      minimumFractionDigits: fractionDigits,
+      maximumFractionDigits: fractionDigits,
+    });
+  };
+
+  const formatDeltaWithPercent = (
+    delta: number | undefined,
+    baseValue: number | undefined,
+    fractionDigits = 0,
+    percentDigits = 1
+  ) => {
+    if (delta === undefined || Number.isNaN(delta)) return "—";
+    const formattedDelta = formatSignedCurrency(delta, fractionDigits);
+    if (baseValue === undefined || Number.isNaN(baseValue) || baseValue === 0) return formattedDelta;
+    const percentValue = delta / baseValue;
+    return `${formattedDelta} (${formatPercent(percentValue, percentDigits)})`;
+  };
+
   const formatRate = (value: number | undefined) => {
     if (value === undefined || Number.isNaN(value)) return "—";
     return `$${value.toLocaleString(undefined, {
@@ -175,7 +236,168 @@ export function ScenarioComparisonTable({ baseMeta }: ScenarioComparisonTablePro
     })}/RSF/Yr`;
   };
 
+  const formatSignedRate = (value: number | undefined) => {
+    if (value === undefined || Number.isNaN(value)) return "—";
+    const sign = value > 0 ? "+" : value < 0 ? "-" : "";
+    const formatted = Math.abs(value).toLocaleString(undefined, {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+    return `${sign}$${formatted}/RSF/Yr`;
+  };
+
+  const formatSignedPsf = (value: number | undefined) => {
+    if (value === undefined || Number.isNaN(value)) return "—";
+    const sign = value > 0 ? "+" : value < 0 ? "-" : "";
+    const formatted = Math.abs(value).toLocaleString(undefined, {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+    return `${sign}$${formatted}/RSF`;
+  };
+
+  const formatSignedMonths = (value: number | undefined) => {
+    if (value === undefined || Number.isNaN(value)) return "—";
+    const sign = value > 0 ? "+" : value < 0 ? "-" : "";
+    const formatted = Math.abs(value).toLocaleString(undefined, {
+      maximumFractionDigits: 1,
+    });
+    return `${sign}${formatted}`;
+  };
+
   const formatDate = (value?: string) => formatDateOnlyDisplay(value, "—");
+
+  const resolveTerminationFeeAt36 = (
+    row: typeof tenantStrategyRows[number] | undefined
+  ): number | undefined => {
+    if (!row) return undefined;
+    const summaryFee = row.dealSheetSummary?.terminationFeeAt36;
+    if (typeof summaryFee === "number" && !Number.isNaN(summaryFee)) return summaryFee;
+
+    const monthlyEconomics = row.monthlyEconomics;
+    if (!monthlyEconomics) return undefined;
+    const months = monthlyEconomics.rentSchedule.months;
+    if (months.length === 0) return undefined;
+    const targetIndex = Math.min(months.length - 1, 35);
+    const termination = monthlyEconomics.termination;
+    const feeAt36 = termination?.feeAt36;
+    if (typeof feeAt36 === "number" && !Number.isNaN(feeAt36)) return feeAt36;
+    if (typeof termination?.feeAtMonth === "function") {
+      const fee = termination.feeAtMonth(targetIndex);
+      if (typeof fee === "number" && !Number.isNaN(fee)) return fee;
+    }
+    const feeByMonth = termination?.feesByMonth?.[targetIndex];
+    if (typeof feeByMonth === "number" && !Number.isNaN(feeByMonth)) return feeByMonth;
+    const penaltyMonths = termination?.penaltyMonths;
+    if (typeof penaltyMonths !== "number" || Number.isNaN(penaltyMonths)) return undefined;
+
+    const currentMonthlyRent = months[targetIndex]?.contractual_base_rent ?? 0;
+    const amortSchedule = monthlyEconomics.amortization?.schedule ?? [];
+    const fee = terminationFeeAtMonth(amortSchedule, targetIndex, penaltyMonths, currentMonthlyRent);
+    if (typeof fee !== "number" || Number.isNaN(fee)) return undefined;
+    return fee;
+  };
+
+  const baseTenantRow = useMemo(() => {
+    if (tenantStrategyRows.length === 0) return undefined;
+    return tenantStrategyRows.find((row) => row.name === "Base Case") ?? tenantStrategyRows[0];
+  }, [tenantStrategyRows]);
+
+  const bestTenantRow = useMemo(() => {
+    if (tenantStrategyRows.length === 0) return undefined;
+    return (
+      tenantStrategyRows.find((row) => row.name === bestTenantScenario) ?? tenantStrategyRows[0]
+    );
+  }, [tenantStrategyRows, bestTenantScenario]);
+
+  const baseTerminationFeeAt36 = useMemo(() => {
+    return resolveTerminationFeeAt36(baseTenantRow);
+  }, [baseTenantRow]);
+
+  const negotiationEquivalencies = useMemo(() => {
+    if (!bestTenantRow || !baseTenantRow) return undefined;
+    const bestMonthly = bestTenantRow.monthlyEconomics;
+    const baseMonthly = baseTenantRow.monthlyEconomics;
+    if (!bestMonthly || !baseMonthly) return undefined;
+
+    const rsf = bestTenantRow.rsf;
+    if (!rsf || rsf <= 0) return undefined;
+
+    const rentSchedule = bestMonthly.rentSchedule;
+    if (rentSchedule.months.length === 0) return undefined;
+
+    const discountRateAnnual = bestMonthly.assumptions.discountRateAnnual;
+    const baseTi = baseTenantRow.costs.tiAllowance;
+    const bestTi = bestTenantRow.costs.tiAllowance;
+    const tiDeltaPsf = (bestTi - baseTi) / rsf;
+
+    const countFreeRentMonths = (monthly: MonthlyEconomics) =>
+      monthly.rentSchedule.months.filter((month) => month.net_rent_due <= 0).length;
+
+    const freeRentDeltaMonths = countFreeRentMonths(bestMonthly) - countFreeRentMonths(baseMonthly);
+    const termDeltaMonths = bestMonthly.rentSchedule.months.length - baseMonthly.rentSchedule.months.length;
+
+    const tiRateEquivalent =
+      tiDeltaPsf !== 0
+        ? tiToRateEquivalentPsfYr({
+            tiPsf: tiDeltaPsf,
+            rsf,
+            rentSchedule,
+            discountRateAnnual,
+          })
+        : undefined;
+
+    const freeRentRateEquivalent =
+      freeRentDeltaMonths !== 0
+        ? freeRentToRateEquivalentPsfYr({
+            freeRentMonths: freeRentDeltaMonths,
+            rsf,
+            rentSchedule,
+            discountRateAnnual,
+          })
+        : undefined;
+
+    const termExtensionTiCapacity =
+      termDeltaMonths !== 0
+        ? termExtensionToAdditionalTiPsf({
+            extensionMonths: termDeltaMonths,
+            rsf,
+            rentSchedule,
+            discountRateAnnual,
+          })
+        : undefined;
+
+    const lines = [
+      tiDeltaPsf !== 0 && tiRateEquivalent !== undefined
+        ? {
+            key: "ti",
+            label: `${formatSignedPsf(tiDeltaPsf)} \u2248 ${formatSignedRate(
+              tiRateEquivalent
+            )} rate (NPV-equivalent)`,
+          }
+        : undefined,
+      freeRentDeltaMonths !== 0 && freeRentRateEquivalent !== undefined
+        ? {
+            key: "freeRent",
+            label: `${formatSignedMonths(
+              freeRentDeltaMonths
+            )} months free \u2248 ${formatSignedRate(
+              freeRentRateEquivalent
+            )} rate (NPV-equivalent)`,
+          }
+        : undefined,
+      termDeltaMonths !== 0 && termExtensionTiCapacity !== undefined
+        ? {
+            key: "term",
+            label: `${formatSignedMonths(termDeltaMonths)} months term \u2248 ${formatSignedPsf(
+              termExtensionTiCapacity
+            )} additional TI capacity (NPV-equivalent)`,
+          }
+        : undefined,
+    ].filter(Boolean) as Array<{ key: string; label: string }>;
+
+    return lines.length > 0 ? lines : undefined;
+  }, [baseTenantRow, bestTenantRow]);
 
   const getAmortizationBalance = (schedule: AmortizationRow[], monthNumber: number) => {
     const row = schedule[monthNumber - 1];
@@ -291,6 +513,138 @@ export function ScenarioComparisonTable({ baseMeta }: ScenarioComparisonTablePro
           <p className="text-sm text-muted-foreground">No scenarios yet.</p>
         ) : (
           <div className="space-y-4">
+            <details open className="rounded-lg border bg-muted/10 p-3">
+              <summary className="cursor-pointer font-medium">Tenant Strategy Snapshot</summary>
+              <div className="mt-2 text-xs text-muted-foreground">
+                <span className="font-medium text-foreground">Assumptions:</span>{" "}
+                {assumptionsLine || "—"}
+                {normalizationWarningCount > 0 ? (
+                  <span className="ml-2">
+                    Normalization warnings: {normalizationWarningCount}
+                  </span>
+                ) : null}
+              </div>
+              {tenantStrategyRows.length === 0 ? (
+                <div className="mt-2 text-xs text-muted-foreground">Not available.</div>
+              ) : (
+                <div className="mt-3 overflow-x-auto">
+                  <table className="min-w-full text-sm">
+                    <thead className="border-b bg-muted/40">
+                      <tr>
+                        <th className="text-right p-2 font-semibold">Rank</th>
+                        <th className="text-left p-2 font-semibold">Scenario</th>
+                        <th className="text-right p-2 font-semibold">Total Occupancy Cost NPV</th>
+                        <th className="text-right p-2 font-semibold">Δ NPV vs Base</th>
+                        <th className="text-right p-2 font-semibold">Δ Free Rent</th>
+                        <th className="text-right p-2 font-semibold">Δ LL Contribution</th>
+                        <th className="text-right p-2 font-semibold">Δ Termination Fee</th>
+                        <th className="text-left p-2 font-semibold">Flags</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {tenantStrategyRows.map((row, index) => {
+                        const summary = row.tenantStrategySummary;
+                        const isBest = row.name === bestTenantScenario;
+                        const baseSummary = baseTenantRow?.tenantStrategySummary;
+                        return (
+                          <React.Fragment key={row.name}>
+                            <tr
+                              className={`border-b ${isBest ? "bg-emerald-50/60" : "hover:bg-muted/40"}`}
+                            >
+                              <td className="p-2 text-right">{index + 1}</td>
+                              <td className="p-2 font-medium">
+                                <div className="flex items-center gap-2">
+                                  <span>{row.name}</span>
+                                  {isBest ? (
+                                    <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700">
+                                      Best for Tenant
+                                    </span>
+                                  ) : null}
+                                </div>
+                              </td>
+                              <td className="p-2 text-right">
+                                {formatCurrency(summary.totalOccupancyCostNPV)}
+                              </td>
+                              <td className="p-2 text-right">
+                                {formatDeltaWithPercent(
+                                  summary.deltaVsBase.npvChange,
+                                  baseSummary?.totalOccupancyCostNPV
+                                )}
+                              </td>
+                              <td className="p-2 text-right">
+                                {formatDeltaWithPercent(
+                                  summary.deltaVsBase.freeRentChange,
+                                  baseSummary?.freeRentValue
+                                )}
+                              </td>
+                              <td className="p-2 text-right">
+                                {formatDeltaWithPercent(
+                                  summary.deltaVsBase.llContributionChange,
+                                  baseSummary?.llContribution
+                                )}
+                              </td>
+                              <td className="p-2 text-right">
+                                {formatDeltaWithPercent(
+                                  summary.deltaVsBase.terminationFeeChange,
+                                  baseTerminationFeeAt36
+                                )}
+                              </td>
+                              <td className="p-2">
+                                {summary.leverageFlags.length === 0 ? (
+                                  <span className="text-muted-foreground">—</span>
+                                ) : (
+                                  <div className="flex flex-wrap gap-1">
+                                    {summary.leverageFlags.map((flag) => (
+                                      <span
+                                        key={flag}
+                                        className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground"
+                                      >
+                                        {flag}
+                                      </span>
+                                    ))}
+                                  </div>
+                                )}
+                              </td>
+                            </tr>
+                            {isBest ? (
+                              <tr className="border-b bg-emerald-50/40">
+                                <td colSpan={8} className="p-2 text-xs">
+                                  <div className="flex flex-col gap-1">
+                                    <div>
+                                      <span className="font-semibold text-emerald-700">Talking point:</span>{" "}
+                                      {summary.talkingPoint}
+                                    </div>
+                                    {summary.watchOut ? (
+                                      <div className="text-amber-700">
+                                        <span className="font-semibold">Watch out:</span>{" "}
+                                        {summary.watchOut}
+                                      </div>
+                                    ) : null}
+                                    {negotiationEquivalencies ? (
+                                      <div className="mt-2 rounded-md border bg-white/70 p-2 text-[11px] text-muted-foreground">
+                                        <div className="mb-1 font-semibold text-foreground">
+                                          Negotiation Equivalencies
+                                        </div>
+                                        <div className="flex flex-col gap-0.5">
+                                          {negotiationEquivalencies.map((line) => (
+                                            <div key={line.key}>{line.label}</div>
+                                          ))}
+                                        </div>
+                                      </div>
+                                    ) : null}
+                                  </div>
+                                </td>
+                              </tr>
+                            ) : null}
+                          </React.Fragment>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </details>
+
             <details open className="rounded-lg border bg-muted/10 p-3">
               <summary className="cursor-pointer font-medium">Deal Sheet Summary</summary>
               <div className="mt-3 grid gap-4 md:grid-cols-2">
