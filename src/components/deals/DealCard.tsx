@@ -37,16 +37,13 @@ function DealCardComponent({
 }: DealCardProps) {
   const daysStale = daysSinceUpdate(deal);
   
-  // Check daily update status
   const hasDailyUpdate = hasDealBeenUpdatedToday(deal.id);
   const needsDailyUpdate = !hasDailyUpdate && 
     (deal.status === "Active" || (deal.stage !== "Closed Won" && deal.stage !== "Closed Lost"));
   
-  // Calculate deal health score
   const healthScore = React.useMemo(() => calculateDealHealthScore(deal), [deal]);
 
   const handleCardClick = (e: React.MouseEvent) => {
-    // Don't trigger view if clicking on action buttons
     if ((e.target as HTMLElement).closest('.deal-actions')) {
       return;
     }
@@ -60,7 +57,6 @@ function DealCardComponent({
     }
   };
 
-  // Build context menu groups
   const contextMenuGroups: ContextMenuGroup[] = [
     {
       id: "primary",
@@ -105,7 +101,6 @@ function DealCardComponent({
           label: "Move to Stage...",
           icon: <FileText className="h-4 w-4" />,
           onClick: () => {
-            // For now, just cycle to next stage - could be enhanced with submenu
             const currentIndex = ALL_STAGES.indexOf(deal.stage);
             const nextStage = ALL_STAGES[(currentIndex + 1) % ALL_STAGES.length];
             onStageChange(deal, nextStage);
@@ -130,12 +125,12 @@ function DealCardComponent({
       trigger={
         <Card
           className={`
-            group cursor-pointer transition-all hover:shadow-lg border-l-4
-            ${deal.priority === "High" ? "border-l-red-500" : ""}
-            ${deal.priority === "Medium" ? "border-l-yellow-500" : ""}
-            ${deal.priority === "Low" ? "border-l-gray-400" : ""}
+            group cursor-pointer transition-all duration-200 hover:shadow-lg hover:-translate-y-0.5 border-l-4
+            ${deal.priority === "High" ? "border-l-destructive" : ""}
+            ${deal.priority === "Medium" ? "border-l-ring" : ""}
+            ${deal.priority === "Low" ? "border-l-muted-foreground/30" : ""}
             ${isDragging ? "opacity-50 rotate-2" : ""}
-            ${daysStale > 7 ? "bg-yellow-50" : "bg-white"}
+            ${daysStale > 7 ? "bg-amber-50 dark:bg-amber-950/20" : "bg-card"}
           `}
           onClick={handleCardClick}
           onKeyDown={handleCardKeyDown}
@@ -146,11 +141,11 @@ function DealCardComponent({
       <CardHeader className="pb-3">
         <div className="flex items-start justify-between gap-2">
           <div className="flex-1 min-w-0">
-            <h3 className="font-semibold text-sm truncate" title={deal.clientName}>
+            <h3 className="font-semibold text-sm truncate text-card-foreground" title={deal.clientName}>
               {deal.clientName}
             </h3>
             {deal.clientCompany && (
-              <p className="text-xs text-gray-500 truncate" title={deal.clientCompany}>
+              <p className="text-xs text-muted-foreground truncate" title={deal.clientCompany}>
                 {deal.clientCompany}
               </p>
             )}
@@ -180,7 +175,7 @@ function DealCardComponent({
               onClick={(e) => e.stopPropagation()}
             >
               <button
-                className="p-1 rounded hover:bg-gray-100 opacity-0 group-hover:opacity-100 transition-opacity"
+                className="p-1 rounded hover:bg-muted opacity-0 group-hover:opacity-100 transition-opacity"
                 onClick={(e) => {
                   e.stopPropagation();
                   onView?.(deal);
@@ -188,7 +183,7 @@ function DealCardComponent({
                 aria-label="Show deal actions"
                 aria-haspopup="menu"
               >
-                <MoreVertical className="h-4 w-4 text-gray-400" />
+                <MoreVertical className="h-4 w-4 text-muted-foreground/60" />
               </button>
             </div>
           </div>
@@ -196,53 +191,47 @@ function DealCardComponent({
       </CardHeader>
 
       <CardContent className="space-y-2 pb-3">
-        {/* Property Address */}
         <div className="flex items-start gap-1.5 text-xs">
-          <MapPin className="h-3 w-3 text-gray-400 mt-0.5 flex-shrink-0" />
-          <span className="text-gray-600 line-clamp-2">
+          <MapPin className="h-3 w-3 text-muted-foreground/60 mt-0.5 flex-shrink-0" />
+          <span className="text-muted-foreground line-clamp-2">
             {deal.property.address}, {deal.property.city}, {deal.property.state}
           </span>
         </div>
 
-        {/* Deal Summary */}
         <div className="flex items-center gap-1.5 text-xs">
-          <Building2 className="h-3 w-3 text-gray-400 flex-shrink-0" />
-          <span className="text-gray-600">
+          <Building2 className="h-3 w-3 text-muted-foreground/60 flex-shrink-0" />
+          <span className="text-muted-foreground">
             {deal.rsf.toLocaleString()} RSF • {deal.leaseTerm} months
           </span>
         </div>
 
-        {/* Number of Analyses */}
         {deal.analysisIds.length > 0 && (
           <div className="flex items-center gap-1.5 text-xs">
-            <FileText className="h-3 w-3 text-gray-400 flex-shrink-0" />
-            <span className="text-gray-600">
+            <FileText className="h-3 w-3 text-muted-foreground/60 flex-shrink-0" />
+            <span className="text-muted-foreground">
               {deal.analysisIds.length} {deal.analysisIds.length === 1 ? 'analysis' : 'analyses'}
             </span>
           </div>
         )}
 
-        {/* Expected Close Date */}
         {deal.expectedCloseDate && (
           <div className="flex items-center gap-1.5 text-xs">
-            <Calendar className="h-3 w-3 text-gray-400 flex-shrink-0" />
-            <span className="text-gray-600">
+            <Calendar className="h-3 w-3 text-muted-foreground/60 flex-shrink-0" />
+            <span className="text-muted-foreground">
               Close: {formatDateOnlyDisplay(deal.expectedCloseDate)}
             </span>
           </div>
         )}
 
-        {/* Broker */}
-        <div className="flex items-center justify-between pt-1 border-t border-gray-100">
-          <span className="text-xs text-gray-500">{deal.broker}</span>
-          <span className="text-xs text-gray-400">
+        <div className="flex items-center justify-between pt-1 border-t border-border">
+          <span className="text-xs text-muted-foreground">{deal.broker}</span>
+          <span className="text-xs text-muted-foreground/70">
             {daysStale === 0 ? 'Today' : daysStale === 1 ? '1 day ago' : `${daysStale} days ago`}
           </span>
         </div>
 
-        {/* Stale warning */}
         {daysStale > 7 && (
-          <div className="text-xs text-yellow-700 bg-yellow-100 px-2 py-1 rounded">
+          <div className="text-xs bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400 px-2 py-1 rounded">
             ⚠️ No updates in {daysStale} days
           </div>
         )}
@@ -257,4 +246,3 @@ function DealCardComponent({
 
 export const DealCard = React.memo(DealCardComponent);
 DealCard.displayName = "DealCard";
-

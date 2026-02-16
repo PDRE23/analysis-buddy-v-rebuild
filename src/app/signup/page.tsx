@@ -52,11 +52,17 @@ export default function SignupPage() {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-blue-50 px-4 py-16">
-      <Card className="w-full max-w-md shadow-xl">
+    <div className="relative flex min-h-screen items-center justify-center bg-gradient-to-br from-[#0a1628] via-[#0f1f3d] to-[#0a1628] px-4 py-16 overflow-hidden">
+      <div className="absolute top-1/4 -right-20 w-96 h-96 bg-amber-500/5 rounded-full blur-3xl pointer-events-none" />
+      <Card className="relative z-10 w-full max-w-md bg-white/95 backdrop-blur-sm shadow-2xl border border-white/20 rounded-2xl">
         <CardHeader className="space-y-2 text-center">
+          <div className="flex justify-center mb-2">
+            <div className="text-xl font-bold text-slate-900">
+              B<span className="text-amber-500 align-top text-sm">²</span>
+            </div>
+          </div>
           <CardTitle className="text-3xl font-extrabold text-slate-900">
-            Join B<span className="align-top text-xl">²</span>
+            Join B<span className="text-amber-500 align-top text-xl">²</span>
           </CardTitle>
           <p className="text-sm text-slate-500">
             The broker tool built by brokers—create your account in seconds.
@@ -114,7 +120,7 @@ export default function SignupPage() {
                 <AlertDescription>{error}</AlertDescription>
               </Alert>
             )}
-            <Button type="submit" className="w-full" disabled={submitting}>
+            <Button type="submit" className="w-full bg-[#162040] hover:bg-[#1e2d54] text-white shadow-lg hover:shadow-xl transition-all duration-200" disabled={submitting}>
               {submitting ? "Creating account..." : "Create Account"}
             </Button>
           </form>
@@ -122,7 +128,7 @@ export default function SignupPage() {
         <CardFooter className="flex flex-col gap-2 text-sm text-slate-500">
           <p>
             Already have an account?{" "}
-            <Link href="/login" className="text-blue-600 hover:underline">
+            <Link href="/login" className="text-amber-600 hover:text-amber-700 hover:underline font-medium">
               Log in here
             </Link>
           </p>

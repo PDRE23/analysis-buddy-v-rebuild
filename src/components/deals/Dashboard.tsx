@@ -51,7 +51,7 @@ export function Dashboard({
   const renderListDeal = useCallback((deal: Deal) => (
     <div className="px-1 pb-2">
       <div
-        className="bg-white border rounded-lg p-4 hover:shadow-md transition-shadow cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary/40"
+        className="bg-card border border-border rounded-lg p-4 hover:shadow-md transition-shadow cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary/40"
         onClick={() => onViewDeal(deal)}
         onKeyDown={(e) => handleDealKeyPress(e, deal)}
         role="button"
@@ -61,7 +61,7 @@ export function Dashboard({
         <div className="flex items-center justify-between">
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-3">
-              <h3 className="font-semibold text-base truncate">
+              <h3 className="font-semibold text-base truncate text-foreground">
                 {deal.clientName}
               </h3>
               <Badge className={getStageColor(deal.stage)} variant="secondary">
@@ -71,7 +71,7 @@ export function Dashboard({
                 {deal.priority}
               </Badge>
             </div>
-            <div className="flex items-center gap-4 mt-1 text-sm text-gray-600">
+            <div className="flex items-center gap-4 mt-1 text-sm text-muted-foreground">
               <span>{deal.property.address}, {deal.property.city}</span>
               <span aria-hidden="true">•</span>
               <span>{deal.rsf.toLocaleString()} RSF</span>
@@ -81,11 +81,11 @@ export function Dashboard({
           </div>
           <div className="text-right">
             {deal.estimatedValue && (
-              <div className="font-semibold">
+              <div className="font-semibold text-foreground">
                 ${(deal.estimatedValue / 1000).toFixed(0)}K
               </div>
             )}
-            <div className="text-xs text-gray-500">
+            <div className="text-xs text-muted-foreground">
               {deal.analysisIds.length} {deal.analysisIds.length === 1 ? "analysis" : "analyses"}
             </div>
           </div>
@@ -94,7 +94,6 @@ export function Dashboard({
     </div>
   ), [handleDealKeyPress, onViewDeal]);
 
-  // Calculate dashboard stats
   const stats = useMemo(() => {
     const activeDeals = deals.filter(d => d.status === "Active");
     const totalValue = activeDeals.reduce((sum, d) => sum + (d.estimatedValue || 0), 0);
@@ -108,20 +107,15 @@ export function Dashboard({
     };
   }, [deals]);
 
-  // Filter and search deals
   const filteredDeals = useMemo(() => {
     let filtered = [...deals];
 
-    // Filter by closed deals toggle
     if (showClosedDeals) {
-      // When showing closed deals, only show closed deals
       filtered = filtered.filter(d => d.stage === "Closed Won" || d.stage === "Closed Lost");
     } else {
-      // Otherwise, exclude closed deals
       filtered = filtered.filter(d => d.stage !== "Closed Won" && d.stage !== "Closed Lost");
     }
 
-    // Apply search query
     if (searchQuery) {
       const query = searchQuery.toLowerCase();
       filtered = filtered.filter(deal =>
@@ -140,7 +134,6 @@ export function Dashboard({
   const listItemHeight = 152;
   const listContainerHeight = Math.max(Math.min(filteredDeals.length, 6) * listItemHeight, listItemHeight);
 
-  // Get recent activities across all deals
   const recentActivities = useMemo(() => {
     const activities: Array<{ deal: Deal; activity: typeof deals[0]["activities"][0] }> = [];
     
@@ -157,12 +150,11 @@ export function Dashboard({
 
   return (
     <div className="h-full flex flex-col">
-      {/* Header */}
-      <div className="flex-shrink-0 border-b bg-white px-6 py-4">
+      <div className="flex-shrink-0 border-b border-border bg-card px-6 py-4">
         <div className="flex items-center justify-between mb-4">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">Deal Pipeline</h1>
-            <p className="text-sm text-gray-600">
+            <h1 className="text-2xl font-bold text-foreground">Deal Pipeline</h1>
+            <p className="text-sm text-muted-foreground">
               {stats.activeDeals} active deals • ${(stats.totalValue / 1000).toFixed(0)}K pipeline value
             </p>
           </div>
@@ -178,53 +170,50 @@ export function Dashboard({
                 Daily Deal Updates
               </Button>
             )}
-            <Button onClick={() => onAddDeal()} className="gap-2">
+            <Button onClick={() => onAddDeal()} className="gap-2 bg-ring text-primary-foreground hover:bg-ring/90">
               <Plus className="h-4 w-4" />
               New Deal
             </Button>
           </div>
         </div>
 
-        {/* Stats Cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-          <Card>
+          <Card className="border-l-4 border-l-ring">
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-gray-600 flex items-center gap-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
                 <TrendingUp className="h-4 w-4" />
                 Pipeline Value
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">${(stats.totalValue / 1000).toFixed(0)}K</div>
-              <p className="text-xs text-gray-500">
+              <div className="text-2xl font-bold text-card-foreground">${(stats.totalValue / 1000).toFixed(0)}K</div>
+              <p className="text-xs text-muted-foreground">
                 Avg: ${(stats.avgDealSize / 1000).toFixed(0)}K per deal
               </p>
             </CardContent>
           </Card>
 
-          <Card>
+          <Card className="border-l-4 border-l-primary">
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-gray-600 flex items-center gap-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
                 <Kanban className="h-4 w-4" />
                 Active Deals
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{stats.activeDeals}</div>
-              <p className="text-xs text-gray-500">
+              <div className="text-2xl font-bold text-card-foreground">{stats.activeDeals}</div>
+              <p className="text-xs text-muted-foreground">
                 {stats.totalDeals - stats.activeDeals} closed
               </p>
             </CardContent>
           </Card>
         </div>
 
-        {/* Search Bar */}
         <FilterBar
           searchQuery={searchQuery}
           onSearchChange={setSearchQuery}
         />
 
-        {/* View Toggle and Controls */}
         <div className="flex items-center gap-2 mt-3">
           <div className="flex items-center gap-2">
             <Button
@@ -252,12 +241,10 @@ export function Dashboard({
             size="sm"
             onClick={() => {
               if (!showClosedDeals) {
-                // Showing closed deals - save current view and switch to list
                 setPreviousView(view);
                 setView("list");
                 setShowClosedDeals(true);
               } else {
-                // Hiding closed deals - restore previous view
                 setView(previousView);
                 setShowClosedDeals(false);
               }
@@ -269,25 +256,24 @@ export function Dashboard({
         </div>
       </div>
 
-      {/* Main Content Area */}
       <div className="flex-1 overflow-hidden p-6">
         {filteredDeals.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-center">
             <div className="mb-4">
-              <Kanban className="h-16 w-16 text-gray-300 mx-auto mb-4" />
-              <h3 className="text-xl font-semibold text-gray-700 mb-2">
+              <Kanban className="h-16 w-16 text-muted-foreground/30 mx-auto mb-4" />
+              <h3 className="text-xl font-semibold text-foreground mb-2">
                 {searchQuery 
                   ? "No deals match your search" 
                   : "No deals yet"}
               </h3>
-              <p className="text-gray-500 mb-6">
+              <p className="text-muted-foreground mb-6">
                 {searchQuery
                   ? "Try adjusting your search"
                   : "Create your first deal to get started"}
               </p>
             </div>
             {!searchQuery && (
-              <Button onClick={() => onAddDeal()} className="gap-2">
+              <Button onClick={() => onAddDeal()} className="gap-2 bg-ring text-primary-foreground hover:bg-ring/90">
                 <Plus className="h-4 w-4" />
                 Create Your First Deal
               </Button>
@@ -295,14 +281,13 @@ export function Dashboard({
           </div>
         ) : (
           <>
-            {/* Show list view for closed deals, otherwise respect view setting */}
             {showClosedDeals ? (
               <div className="overflow-y-auto">
                 <div className="mb-4">
-                  <h2 className="text-lg font-semibold text-gray-900">
+                  <h2 className="text-lg font-semibold text-foreground">
                     Closed Deals ({filteredDeals.length})
                   </h2>
-                  <p className="text-sm text-gray-600">
+                  <p className="text-sm text-muted-foreground">
                     {filteredDeals.filter(d => d.stage === "Closed Won").length} won • {filteredDeals.filter(d => d.stage === "Closed Lost").length} lost
                   </p>
                 </div>
@@ -363,4 +348,3 @@ export function Dashboard({
     </div>
   );
 }
-

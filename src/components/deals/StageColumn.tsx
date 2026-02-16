@@ -22,19 +22,17 @@ export function StageColumn({ stage, deals, onAddDeal, children }: StageColumnPr
     id: stage,
   });
 
-  // Calculate total value of deals in this stage
   const totalValue = deals.reduce((sum, deal) => sum + (deal.estimatedValue || 0), 0);
 
   return (
     <div className="flex flex-col h-full flex-1 min-w-0">
-      {/* Column Header */}
       <div className="flex-shrink-0 mb-3">
         <div className="flex items-center justify-between mb-2">
           <div className="flex items-center gap-2">
             <Badge className={getStageColor(stage)} variant="secondary">
               {stage}
             </Badge>
-            <span className="text-sm font-medium text-gray-600">
+            <span className="text-sm font-medium text-muted-foreground">
               {deals.length}
             </span>
           </div>
@@ -43,7 +41,7 @@ export function StageColumn({ stage, deals, onAddDeal, children }: StageColumnPr
             <Button
               variant="ghost"
               size="sm"
-              className="h-7 px-2"
+              className="h-7 px-2 text-muted-foreground hover:text-foreground hover:bg-muted"
               onClick={() => onAddDeal(stage)}
             aria-label={`Add new deal in ${stage}`}
             >
@@ -53,18 +51,17 @@ export function StageColumn({ stage, deals, onAddDeal, children }: StageColumnPr
         </div>
 
         {totalValue > 0 && (
-          <div className="text-xs text-gray-500">
+          <div className="text-xs text-muted-foreground">
             ${totalValue.toLocaleString()}
           </div>
         )}
       </div>
 
-      {/* Droppable Area */}
       <div
         ref={setNodeRef}
         className={`
           flex-1 rounded-lg p-2 transition-colors min-h-[200px]
-          ${isOver ? 'bg-blue-50 border-2 border-blue-300 border-dashed' : 'bg-gray-50 border-2 border-transparent'}
+          ${isOver ? 'bg-ring/10 border-2 border-ring/30 border-dashed' : 'bg-muted/50 border-2 border-transparent'}
         `}
         role="list"
         aria-label={`${stage} deals`}
@@ -78,9 +75,8 @@ export function StageColumn({ stage, deals, onAddDeal, children }: StageColumnPr
           </div>
         </SortableContext>
 
-        {/* Empty State */}
         {deals.length === 0 && (
-          <div className="flex items-center justify-center h-full text-gray-400 text-sm">
+          <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
             {isOver ? 'Drop here' : 'No deals'}
           </div>
         )}
@@ -88,4 +84,3 @@ export function StageColumn({ stage, deals, onAddDeal, children }: StageColumnPr
     </div>
   );
 }
-

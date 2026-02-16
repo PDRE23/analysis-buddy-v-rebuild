@@ -227,62 +227,60 @@ export function AppContainer() {
 
   return (
     <div className="h-screen flex flex-col">
-      {/* Top Navigation Bar - Redesigned */}
-      <div className="flex-shrink-0 bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 border-b border-slate-700 shadow-lg">
-        <div className="px-6 py-4">
-          {/* Top Row: Logo/Branding + User Info + Settings/Sign Out */}
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-3">
-              <h1 className="text-5xl font-extrabold text-white tracking-tight">B²</h1>
-              <span className="text-sm text-slate-300 font-medium hidden sm:block">
+      <div className="flex-shrink-0 bg-gradient-to-r from-[#0f1729] via-[#162040] to-[#0f1729] border-b border-white/[0.06] shadow-[0_1px_3px_rgba(0,0,0,0.4)]">
+        <div className="px-6 py-3">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-4">
+              <h1 className="text-3xl font-bold text-white tracking-tight leading-none">
+                B<sup className="text-amber-400 text-lg font-bold">2</sup>
+              </h1>
+              <div className="hidden sm:block h-5 w-px bg-white/10"></div>
+              <span className="text-xs text-slate-400 font-light tracking-wide hidden sm:block uppercase">
                 The Broker Tool Built By Brokers
               </span>
             </div>
-            
-            {/* User Info and Actions - Right Side */}
-            <div className="flex items-center gap-3">
-              <div className="hidden flex-col text-right text-xs text-slate-300 sm:flex">
-                <span className="font-medium text-white">
+
+            <div className="flex items-center gap-4">
+              <div className="hidden sm:flex flex-col text-right">
+                <span className="text-sm font-medium text-white/90">
                   {(user as any)?.user_metadata?.full_name ?? (user as any)?.name ?? user?.email ?? "Broker"}
                 </span>
-                <span className="text-[0.7rem] uppercase tracking-widest text-slate-400">
+                <span className="text-[0.65rem] uppercase tracking-[0.15em] text-slate-500">
                   Workspace Owner
                 </span>
               </div>
+              <div className="hidden sm:block h-6 w-px bg-white/[0.08]"></div>
               <Button
                 variant="ghost"
                 size="sm"
                 onClick={() => setCurrentView("settings")}
-                className="gap-2 text-slate-300 hover:text-white hover:bg-slate-700"
+                className="gap-1.5 text-slate-400 hover:text-white/90 hover:bg-white/[0.06] transition-colors duration-150"
                 aria-label="Open workspace settings"
               >
-                <SettingsIcon className="h-4 w-4" aria-hidden="true" />
-                <span className="hidden sm:inline">Settings</span>
+                <SettingsIcon className="h-3.5 w-3.5" aria-hidden="true" />
+                <span className="hidden sm:inline text-xs">Settings</span>
               </Button>
               <Button
                 variant="ghost"
                 size="sm"
                 onClick={() => signOut().catch(console.error)}
-                className="gap-2 text-slate-300 hover:text-white hover:bg-slate-700"
+                className="gap-1.5 text-slate-400 hover:text-white/90 hover:bg-white/[0.06] transition-colors duration-150"
               >
-                <span className="hidden sm:inline">Sign Out</span>
+                <span className="hidden sm:inline text-xs">Sign Out</span>
               </Button>
             </div>
           </div>
 
-          {/* Subtle Divider */}
-          <div className="border-t border-slate-700/50 mb-3"></div>
+          <div className="h-px bg-gradient-to-r from-transparent via-amber-500/20 to-transparent mb-3"></div>
 
-          {/* Main Navigation Tabs - Color Coded */}
-          <div className="flex items-center gap-2">
-            {/* Prospects Tab - Blue */}
+          <div className="flex items-center gap-1">
             <button
               onClick={() => setCurrentView("prospects")}
               className={`
-                flex items-center gap-2 px-6 py-2.5 rounded-lg font-semibold text-sm transition-all duration-200 relative
-                ${currentView === "prospects" 
-                  ? "bg-blue-600 text-white shadow-lg shadow-blue-500/50 scale-105" 
-                  : "bg-slate-700/50 text-slate-300 hover:bg-slate-700 hover:text-white hover:scale-[1.02]"}
+                flex items-center gap-2 px-5 py-2 rounded-md font-medium text-sm transition-colors duration-150 relative
+                ${currentView === "prospects"
+                  ? "bg-white/10 text-white"
+                  : "text-slate-400 hover:bg-white/5 hover:text-slate-200"}
               `}
               aria-label="Prospects"
               aria-pressed={currentView === "prospects"}
@@ -290,18 +288,17 @@ export function AppContainer() {
               <Phone className="h-4 w-4" />
               <span className="hidden sm:inline">Prospects</span>
               {currentView === "prospects" && (
-                <div className="absolute -bottom-0.5 left-1/2 transform -translate-x-1/2 w-3/4 h-0.5 bg-blue-400 rounded-full"></div>
+                <div className="absolute bottom-0 left-2 right-2 h-0.5 bg-amber-400/80 rounded-full"></div>
               )}
             </button>
 
-            {/* Pipeline Tab - Green */}
             <button
               onClick={handleBackToPipeline}
               className={`
-                flex items-center gap-2 px-6 py-2.5 rounded-lg font-semibold text-sm transition-all duration-200 relative
-                ${currentView === "pipeline" 
-                  ? "bg-emerald-600 text-white shadow-lg shadow-emerald-500/50 scale-105" 
-                  : "bg-slate-700/50 text-slate-300 hover:bg-slate-700 hover:text-white hover:scale-[1.02]"}
+                flex items-center gap-2 px-5 py-2 rounded-md font-medium text-sm transition-colors duration-150 relative
+                ${currentView === "pipeline"
+                  ? "bg-white/10 text-white"
+                  : "text-slate-400 hover:bg-white/5 hover:text-slate-200"}
               `}
               aria-label="Pipeline"
               aria-pressed={currentView === "pipeline"}
@@ -309,11 +306,10 @@ export function AppContainer() {
               <Kanban className="h-4 w-4" />
               <span className="hidden sm:inline">Pipeline</span>
               {currentView === "pipeline" && (
-                <div className="absolute -bottom-0.5 left-1/2 transform -translate-x-1/2 w-3/4 h-0.5 bg-emerald-400 rounded-full"></div>
+                <div className="absolute bottom-0 left-2 right-2 h-0.5 bg-amber-400/80 rounded-full"></div>
               )}
             </button>
 
-            {/* Analyses Tab - Purple */}
             <button
               onClick={() => {
                 if (currentView !== "analysis") {
@@ -322,10 +318,10 @@ export function AppContainer() {
                 }
               }}
               className={`
-                flex items-center gap-2 px-6 py-2.5 rounded-lg font-semibold text-sm transition-all duration-200 relative
-                ${currentView === "analysis" 
-                  ? "bg-purple-600 text-white shadow-lg shadow-purple-500/50 scale-105" 
-                  : "bg-slate-700/50 text-slate-300 hover:bg-slate-700 hover:text-white hover:scale-[1.02]"}
+                flex items-center gap-2 px-5 py-2 rounded-md font-medium text-sm transition-colors duration-150 relative
+                ${currentView === "analysis"
+                  ? "bg-white/10 text-white"
+                  : "text-slate-400 hover:bg-white/5 hover:text-slate-200"}
               `}
               aria-label="Analyses"
               aria-pressed={currentView === "analysis"}
@@ -333,18 +329,17 @@ export function AppContainer() {
               <FileText className="h-4 w-4" />
               <span className="hidden sm:inline">Analyses</span>
               {currentView === "analysis" && (
-                <div className="absolute -bottom-0.5 left-1/2 transform -translate-x-1/2 w-3/4 h-0.5 bg-purple-400 rounded-full"></div>
+                <div className="absolute bottom-0 left-2 right-2 h-0.5 bg-amber-400/80 rounded-full"></div>
               )}
             </button>
 
-            {/* Team Notes Tab - Orange */}
             <button
               onClick={() => setCurrentView("team-notes")}
               className={`
-                flex items-center gap-2 px-6 py-2.5 rounded-lg font-semibold text-sm transition-all duration-200 relative
-                ${currentView === "team-notes" 
-                  ? "bg-orange-600 text-white shadow-lg shadow-orange-500/50 scale-105" 
-                  : "bg-slate-700/50 text-slate-300 hover:bg-slate-700 hover:text-white hover:scale-[1.02]"}
+                flex items-center gap-2 px-5 py-2 rounded-md font-medium text-sm transition-colors duration-150 relative
+                ${currentView === "team-notes"
+                  ? "bg-white/10 text-white"
+                  : "text-slate-400 hover:bg-white/5 hover:text-slate-200"}
               `}
               aria-label="Team Notes"
               aria-pressed={currentView === "team-notes"}
@@ -352,7 +347,7 @@ export function AppContainer() {
               <StickyNote className="h-4 w-4" />
               <span className="hidden sm:inline">Team Notes</span>
               {currentView === "team-notes" && (
-                <div className="absolute -bottom-0.5 left-1/2 transform -translate-x-1/2 w-3/4 h-0.5 bg-orange-400 rounded-full"></div>
+                <div className="absolute bottom-0 left-2 right-2 h-0.5 bg-amber-400/80 rounded-full"></div>
               )}
             </button>
           </div>
