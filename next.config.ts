@@ -1,7 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  // Removed output: "standalone" - Vercel handles this automatically
+  allowedDevOrigins: ['*'],
   experimental: {
     optimizePackageImports: [
       "lucide-react",
@@ -9,7 +9,6 @@ const nextConfig: NextConfig = {
       "@radix-ui/react-popover",
       "@radix-ui/react-dropdown-menu",
     ],
-    // Removed esmExternals: "loose" - Next.js recommends not modifying this
   },
   modularizeImports: {
     "date-fns": {
@@ -39,7 +38,7 @@ const nextConfig: NextConfig = {
               "object-src 'none'",
               "base-uri 'self'",
               "form-action 'self'",
-              "frame-ancestors 'none'",
+              "frame-ancestors *",
               "upgrade-insecure-requests",
             ].join("; "),
           },
@@ -49,7 +48,7 @@ const nextConfig: NextConfig = {
           },
           {
             key: "X-Frame-Options",
-            value: "DENY",
+            value: "ALLOWALL",
           },
           {
             key: "X-XSS-Protection",
