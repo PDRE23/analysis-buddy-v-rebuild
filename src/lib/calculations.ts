@@ -4,6 +4,7 @@
 
 import { parseDateOnly } from "./dateOnly";
 import type { AnnualLine } from "@/types";
+import { npv } from "./calculations/metrics-engine";
 
 export type { AnnualLine };
 
@@ -62,28 +63,7 @@ export const overlappingMonths = (
   return Math.max(0, months);
 };
 
-/**
- * Calculate Net Present Value of cash flows
- */
-export const npv = (lines: AnnualLine[], discountRate: number): number => {
-  return lines.reduce(
-    (acc, row, i) => acc + row.net_cash_flow / Math.pow(1 + discountRate, i + 1), 
-    0
-  );
-};
-
-/**
- * Calculate effective rent per square foot
- */
-export const effectiveRentPSF = (
-  lines: AnnualLine[], 
-  rsf: number, 
-  years: number
-): number => {
-  const totalNCF = lines.reduce((acc, r) => acc + r.net_cash_flow, 0);
-  const denom = Math.max(1, rsf) * Math.max(1, years);
-  return totalNCF / denom;
-};
+export { npv, effectiveRentPSF } from "./calculations/metrics-engine";
 
 /**
  * Calculate internal rate of return (IRR) approximation

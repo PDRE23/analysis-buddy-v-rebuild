@@ -52,6 +52,8 @@ function buildCashflowFromAnalysis(analysis: AnalysisData): CashflowLine[] {
 /**
  * Calculate basic metrics from cashflow
  */
+import { npvFromFlows } from "@/lib/calculations/metrics-engine";
+
 function calculateMetrics(
   cashflow: CashflowLine[],
   analysis: AnalysisData
@@ -61,14 +63,11 @@ function calculateMetrics(
   const effectiveRate = totalYears > 0 && analysis.rsf > 0 
     ? totalNCF / (analysis.rsf * totalYears) 
     : 0;
+
+  const discountRate = 0.08;
+  const npvValue = npvFromFlows(cashflow, discountRate);
   
-  // Simple NPV calculation (should use discount rate from analysis)
-  const discountRate = 0.08; // Default 8%
-  const npv = cashflow.reduce((acc, line, i) => {
-    return acc + line.net_cash_flow / Math.pow(1 + discountRate, i + 1);
-  }, 0);
-  
-  return { effectiveRate, npv, totalYears };
+  return { effectiveRate, npv: npvValue, totalYears };
 }
 
 /**
