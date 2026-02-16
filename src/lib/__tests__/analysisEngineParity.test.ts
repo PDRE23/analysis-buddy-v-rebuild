@@ -44,7 +44,9 @@ function baseMeta(): AnalysisMeta {
       discount_rate: 0.08,
     },
     parking: {},
-  } as AnalysisMeta;
+    options: [],
+    proposals: [],
+  } as unknown as AnalysisMeta;
 }
 
 describe("Analysis engine → UI parity", () => {
