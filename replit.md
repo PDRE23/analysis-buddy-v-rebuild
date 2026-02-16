@@ -33,8 +33,21 @@ docs/           - Documentation
 ## Key Components
 - **AppContainer**: Main app shell with nav header and view switching
 - **PipelineApp/Dashboard**: Deal pipeline with kanban and list views
-- **LeaseAnalyzerApp**: UI layer for lease analysis (~4,977 lines, calculation-free)
+- **LeaseAnalyzerApp**: Orchestration layer for lease analysis (~1,162 lines — state, persistence, routing)
 - **DailyUpdateModal**: Daily deal status tracking
+
+## Analysis Module Structure (src/components/analysis/)
+- **ProposalTab.tsx** (1,650 lines) — Lease proposal form with all input sections
+- **AnalysisTab.tsx** (386 lines) — Financial summary, metrics, and cashflow table display
+- **CashflowTab.tsx** (73 lines) — Chart visualizations with lazy-loaded Recharts
+- **Workspace.tsx** (299 lines) — Tabbed workspace for editing a single proposal
+- **ProposalsBoard.tsx** (320 lines) — Proposal management board with duplicate/negotiation flow
+- **HomeList.tsx** (139 lines) — Analysis list/home view with search
+- **YearTable.tsx** (199 lines) — Annual cashflow table component
+- **QuickPresentationMode.tsx** (53 lines) — Quick presentation overlay
+- **KPI.tsx** (13 lines) — Key performance indicator display
+- **export-utils.ts** (166 lines) — CSV export and clipboard copy utilities
+- **forms/** — Form row components (RentScheduleRow, AbatementPeriodRow, EscalationPeriodRow, OpExEscalationPeriodRow, lease-helpers)
 
 ## Calculation Architecture
 - **Single source of truth**: All financial calculations live in `src/lib/calculations/`
@@ -58,6 +71,7 @@ docs/           - Documentation
 - X-Frame-Options set to ALLOWALL for iframe compatibility
 
 ## Recent Changes
+- 2026-02-16: P1 Structural Refactoring complete — decomposed LeaseAnalyzerApp monolith from 4,977 → 1,162 lines (76.6% reduction), extracted 10 components + export utilities into src/components/analysis/, all 159 tests passing
 - 2026-02-16: P0 Math Hardening complete — removed ~505 lines of duplicate calc engine from LeaseAnalyzerApp, unified NPV to monthly compounding, consolidated AnnualLine types, added 13 parity tests (159 total), documented financial conventions
 - 2026-02-16: Premium UI redesign — "Modern Institutional" theme with navy/gold palette, polished components, refined header/nav, upgraded deal pipeline cards, premium login/signup pages, polished modals
 - 2026-02-16: Initial Replit setup — configured Next.js for Replit environment
