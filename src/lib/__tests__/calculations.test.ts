@@ -18,6 +18,15 @@ import {
   AnnualLine
 } from '../calculations';
 
+function mockLine(overrides: { year: number; base_rent: number; operating: number; abatement_credit: number; net_cash_flow: number }): AnnualLine {
+  return {
+    parking: 0,
+    other_recurring: 0,
+    subtotal: overrides.base_rent + overrides.operating,
+    ...overrides,
+  };
+}
+
 describe('Calculation Functions', () => {
   describe('fmtMoney', () => {
     test('should format positive numbers as currency', () => {
@@ -123,7 +132,7 @@ describe('Calculation Functions', () => {
       const a = new Date('2024-01-01');
       const b = new Date('2024-12-31');
       
-      expect(overlappingMonths(start, end, a, b)).toBe(13); // +1 because of inclusive calculation
+      expect(overlappingMonths(start, end, a, b)).toBe(12); // Jan through Dec = 12 months
     });
 
     test('should handle partial overlaps', () => {
@@ -132,7 +141,7 @@ describe('Calculation Functions', () => {
       const a = new Date('2024-01-01');
       const b = new Date('2024-12-31');
       
-      expect(overlappingMonths(start, end, a, b)).toBe(7); // +1 because of inclusive calculation
+      expect(overlappingMonths(start, end, a, b)).toBe(6); // Jan through Jun = 6 months
     });
 
     test('should return 0 when no overlap', () => {
@@ -144,13 +153,13 @@ describe('Calculation Functions', () => {
       expect(overlappingMonths(start, end, a, b)).toBe(0);
     });
 
-    test('should handle single month overlaps', () => {
+    test('should handle single-day overlap within same month', () => {
       const start = new Date('2024-01-01');
       const end = new Date('2024-01-31');
       const a = new Date('2024-01-15');
       const b = new Date('2024-01-15');
       
-      expect(overlappingMonths(start, end, a, b)).toBe(0); // No overlap when end is before start
+      expect(overlappingMonths(start, end, a, b)).toBe(1); // Single day within a month = 1 month
     });
 
     test('should handle cross-year overlaps', () => {
@@ -159,16 +168,25 @@ describe('Calculation Functions', () => {
       const a = new Date('2023-01-01');
       const b = new Date('2024-12-31');
       
-      expect(overlappingMonths(start, end, a, b)).toBe(5); // +1 because of inclusive calculation
+      expect(overlappingMonths(start, end, a, b)).toBe(4); // Nov, Dec, Jan, Feb = 4 months
+    });
+
+    test('should subtract a month when end day precedes start day', () => {
+      const start = new Date('2024-01-15');
+      const end = new Date('2024-04-10');
+      const a = new Date('2024-01-01');
+      const b = new Date('2024-12-31');
+      
+      expect(overlappingMonths(start, end, a, b)).toBe(3); // Jan 15 to Apr 10 — partial month handling
     });
   });
 
   describe('npv', () => {
     const mockLines: AnnualLine[] = [
-      { year: 2024, base_rent: 1000, operating: 0, abatement_credit: 0, net_cash_flow: 1000 },
-      { year: 2025, base_rent: 2000, operating: 0, abatement_credit: 0, net_cash_flow: 2000 },
-      { year: 2026, base_rent: 3000, operating: 0, abatement_credit: 0, net_cash_flow: 3000 },
-      { year: 2027, base_rent: 4000, operating: 0, abatement_credit: 0, net_cash_flow: 4000 },
+      mockLine({ year: 2024, base_rent: 1000, operating: 0, abatement_credit: 0, net_cash_flow: 1000 }),
+      mockLine({ year: 2025, base_rent: 2000, operating: 0, abatement_credit: 0, net_cash_flow: 2000 }),
+      mockLine({ year: 2026, base_rent: 3000, operating: 0, abatement_credit: 0, net_cash_flow: 3000 }),
+      mockLine({ year: 2027, base_rent: 4000, operating: 0, abatement_credit: 0, net_cash_flow: 4000 }),
     ];
 
     test('should calculate NPV correctly', () => {
@@ -185,10 +203,10 @@ describe('Calculation Functions', () => {
 
     test('should handle negative cash flows', () => {
       const negativeLines: AnnualLine[] = [
-        { year: 2024, base_rent: 0, operating: 0, abatement_credit: 1000, net_cash_flow: -1000 },
-        { year: 2025, base_rent: 2000, operating: 0, abatement_credit: 0, net_cash_flow: 2000 },
-        { year: 2026, base_rent: 0, operating: 0, abatement_credit: 500, net_cash_flow: -500 },
-        { year: 2027, base_rent: 1500, operating: 0, abatement_credit: 0, net_cash_flow: 1500 },
+        mockLine({ year: 2024, base_rent: 0, operating: 0, abatement_credit: 1000, net_cash_flow: -1000 }),
+        mockLine({ year: 2025, base_rent: 2000, operating: 0, abatement_credit: 0, net_cash_flow: 2000 }),
+        mockLine({ year: 2026, base_rent: 0, operating: 0, abatement_credit: 500, net_cash_flow: -500 }),
+        mockLine({ year: 2027, base_rent: 1500, operating: 0, abatement_credit: 0, net_cash_flow: 1500 }),
       ];
       
       const result = npv(negativeLines, 0.05);
@@ -208,10 +226,10 @@ describe('Calculation Functions', () => {
 
   describe('effectiveRentPSF', () => {
     const mockLines: AnnualLine[] = [
-      { year: 2024, base_rent: 10000, operating: 0, abatement_credit: 0, net_cash_flow: 10000 },
-      { year: 2025, base_rent: 11000, operating: 0, abatement_credit: 0, net_cash_flow: 11000 },
-      { year: 2026, base_rent: 12000, operating: 0, abatement_credit: 0, net_cash_flow: 12000 },
-      { year: 2027, base_rent: 13000, operating: 0, abatement_credit: 0, net_cash_flow: 13000 },
+      mockLine({ year: 2024, base_rent: 10000, operating: 0, abatement_credit: 0, net_cash_flow: 10000 }),
+      mockLine({ year: 2025, base_rent: 11000, operating: 0, abatement_credit: 0, net_cash_flow: 11000 }),
+      mockLine({ year: 2026, base_rent: 12000, operating: 0, abatement_credit: 0, net_cash_flow: 12000 }),
+      mockLine({ year: 2027, base_rent: 13000, operating: 0, abatement_credit: 0, net_cash_flow: 13000 }),
     ];
 
     test('should calculate effective rent per SF correctly', () => {
@@ -237,10 +255,10 @@ describe('Calculation Functions', () => {
 
     test('should handle negative cash flows', () => {
       const negativeLines: AnnualLine[] = [
-        { year: 2024, base_rent: 0, operating: 0, abatement_credit: 5000, net_cash_flow: -5000 },
-        { year: 2025, base_rent: 10000, operating: 0, abatement_credit: 0, net_cash_flow: 10000 },
-        { year: 2026, base_rent: 0, operating: 0, abatement_credit: 2000, net_cash_flow: -2000 },
-        { year: 2027, base_rent: 8000, operating: 0, abatement_credit: 0, net_cash_flow: 8000 },
+        mockLine({ year: 2024, base_rent: 0, operating: 0, abatement_credit: 5000, net_cash_flow: -5000 }),
+        mockLine({ year: 2025, base_rent: 10000, operating: 0, abatement_credit: 0, net_cash_flow: 10000 }),
+        mockLine({ year: 2026, base_rent: 0, operating: 0, abatement_credit: 2000, net_cash_flow: -2000 }),
+        mockLine({ year: 2027, base_rent: 8000, operating: 0, abatement_credit: 0, net_cash_flow: 8000 }),
       ];
       
       const result = effectiveRentPSF(negativeLines, 500, 4);
@@ -255,8 +273,8 @@ describe('Calculation Functions', () => {
 
     test('should handle large numbers', () => {
       const largeLines: AnnualLine[] = [
-        { year: 2024, base_rent: 1000000, operating: 0, abatement_credit: 0, net_cash_flow: 1000000 },
-        { year: 2025, base_rent: 2000000, operating: 0, abatement_credit: 0, net_cash_flow: 2000000 },
+        mockLine({ year: 2024, base_rent: 1000000, operating: 0, abatement_credit: 0, net_cash_flow: 1000000 }),
+        mockLine({ year: 2025, base_rent: 2000000, operating: 0, abatement_credit: 0, net_cash_flow: 2000000 }),
       ];
       
       const result = effectiveRentPSF(largeLines, 50000, 2);
@@ -266,11 +284,11 @@ describe('Calculation Functions', () => {
 
   describe('irr', () => {
     const mockLines: AnnualLine[] = [
-      { year: 2024, base_rent: 0, operating: 0, abatement_credit: 100000, net_cash_flow: -100000 },
-      { year: 2025, base_rent: 30000, operating: 0, abatement_credit: 0, net_cash_flow: 30000 },
-      { year: 2026, base_rent: 30000, operating: 0, abatement_credit: 0, net_cash_flow: 30000 },
-      { year: 2027, base_rent: 30000, operating: 0, abatement_credit: 0, net_cash_flow: 30000 },
-      { year: 2028, base_rent: 30000, operating: 0, abatement_credit: 0, net_cash_flow: 30000 },
+      mockLine({ year: 2024, base_rent: 0, operating: 0, abatement_credit: 100000, net_cash_flow: -100000 }),
+      mockLine({ year: 2025, base_rent: 30000, operating: 0, abatement_credit: 0, net_cash_flow: 30000 }),
+      mockLine({ year: 2026, base_rent: 30000, operating: 0, abatement_credit: 0, net_cash_flow: 30000 }),
+      mockLine({ year: 2027, base_rent: 30000, operating: 0, abatement_credit: 0, net_cash_flow: 30000 }),
+      mockLine({ year: 2028, base_rent: 30000, operating: 0, abatement_credit: 0, net_cash_flow: 30000 }),
     ];
 
     test('should calculate IRR approximately', () => {
@@ -280,8 +298,8 @@ describe('Calculation Functions', () => {
 
     test('should handle zero cash flows', () => {
       const zeroLines: AnnualLine[] = [
-        { year: 2024, base_rent: 0, operating: 0, abatement_credit: 0, net_cash_flow: 0 },
-        { year: 2025, base_rent: 0, operating: 0, abatement_credit: 0, net_cash_flow: 0 },
+        mockLine({ year: 2024, base_rent: 0, operating: 0, abatement_credit: 0, net_cash_flow: 0 }),
+        mockLine({ year: 2025, base_rent: 0, operating: 0, abatement_credit: 0, net_cash_flow: 0 }),
       ];
       
       const result = irr(zeroLines);
@@ -291,10 +309,10 @@ describe('Calculation Functions', () => {
 
   describe('paybackPeriod', () => {
     const mockLines: AnnualLine[] = [
-      { year: 2024, base_rent: 0, operating: 0, abatement_credit: 100000, net_cash_flow: -100000 },
-      { year: 2025, base_rent: 50000, operating: 0, abatement_credit: 0, net_cash_flow: 50000 },
-      { year: 2026, base_rent: 50000, operating: 0, abatement_credit: 0, net_cash_flow: 50000 },
-      { year: 2027, base_rent: 50000, operating: 0, abatement_credit: 0, net_cash_flow: 50000 },
+      mockLine({ year: 2024, base_rent: 0, operating: 0, abatement_credit: 100000, net_cash_flow: -100000 }),
+      mockLine({ year: 2025, base_rent: 50000, operating: 0, abatement_credit: 0, net_cash_flow: 50000 }),
+      mockLine({ year: 2026, base_rent: 50000, operating: 0, abatement_credit: 0, net_cash_flow: 50000 }),
+      mockLine({ year: 2027, base_rent: 50000, operating: 0, abatement_credit: 0, net_cash_flow: 50000 }),
     ];
 
     test('should calculate payback period correctly', () => {
@@ -304,9 +322,9 @@ describe('Calculation Functions', () => {
 
     test('should handle never paying back', () => {
       const negativeLines: AnnualLine[] = [
-        { year: 2024, base_rent: 0, operating: 0, abatement_credit: 100000, net_cash_flow: -100000 },
-        { year: 2025, base_rent: 10000, operating: 0, abatement_credit: 0, net_cash_flow: 10000 },
-        { year: 2026, base_rent: 10000, operating: 0, abatement_credit: 0, net_cash_flow: 10000 },
+        mockLine({ year: 2024, base_rent: 0, operating: 0, abatement_credit: 100000, net_cash_flow: -100000 }),
+        mockLine({ year: 2025, base_rent: 10000, operating: 0, abatement_credit: 0, net_cash_flow: 10000 }),
+        mockLine({ year: 2026, base_rent: 10000, operating: 0, abatement_credit: 0, net_cash_flow: 10000 }),
       ];
       
       const result = paybackPeriod(negativeLines);
@@ -316,9 +334,9 @@ describe('Calculation Functions', () => {
 
   describe('cashOnCashReturn', () => {
     const mockLines: AnnualLine[] = [
-      { year: 2024, base_rent: 0, operating: 0, abatement_credit: 100000, net_cash_flow: -100000 },
-      { year: 2025, base_rent: 25000, operating: 0, abatement_credit: 0, net_cash_flow: 25000 },
-      { year: 2026, base_rent: 25000, operating: 0, abatement_credit: 0, net_cash_flow: 25000 },
+      mockLine({ year: 2024, base_rent: 0, operating: 0, abatement_credit: 100000, net_cash_flow: -100000 }),
+      mockLine({ year: 2025, base_rent: 25000, operating: 0, abatement_credit: 0, net_cash_flow: 25000 }),
+      mockLine({ year: 2026, base_rent: 25000, operating: 0, abatement_credit: 0, net_cash_flow: 25000 }),
     ];
 
     test('should calculate cash-on-cash return correctly', () => {
@@ -334,9 +352,9 @@ describe('Calculation Functions', () => {
 
   describe('averageAnnualReturn', () => {
     const mockLines: AnnualLine[] = [
-      { year: 2024, base_rent: 10000, operating: 0, abatement_credit: 0, net_cash_flow: 10000 },
-      { year: 2025, base_rent: 20000, operating: 0, abatement_credit: 0, net_cash_flow: 20000 },
-      { year: 2026, base_rent: 30000, operating: 0, abatement_credit: 0, net_cash_flow: 30000 },
+      mockLine({ year: 2024, base_rent: 10000, operating: 0, abatement_credit: 0, net_cash_flow: 10000 }),
+      mockLine({ year: 2025, base_rent: 20000, operating: 0, abatement_credit: 0, net_cash_flow: 20000 }),
+      mockLine({ year: 2026, base_rent: 30000, operating: 0, abatement_credit: 0, net_cash_flow: 30000 }),
     ];
 
     test('should calculate average annual return correctly', () => {
@@ -352,8 +370,8 @@ describe('Calculation Functions', () => {
 
   describe('roi', () => {
     const mockLines: AnnualLine[] = [
-      { year: 2024, base_rent: 0, operating: 0, abatement_credit: 100000, net_cash_flow: -100000 },
-      { year: 2025, base_rent: 150000, operating: 0, abatement_credit: 0, net_cash_flow: 150000 },
+      mockLine({ year: 2024, base_rent: 0, operating: 0, abatement_credit: 100000, net_cash_flow: -100000 }),
+      mockLine({ year: 2025, base_rent: 150000, operating: 0, abatement_credit: 0, net_cash_flow: 150000 }),
     ];
 
     test('should calculate ROI correctly', () => {

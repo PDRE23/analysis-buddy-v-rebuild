@@ -3,18 +3,9 @@
  */
 
 import { parseDateOnly } from "./dateOnly";
+import type { AnnualLine } from "@/types";
 
-export interface AnnualLine {
-  year: number; // term year index (1-based)
-  base_rent: number;
-  operating: number;
-  parking?: number;
-  abatement_credit: number;
-  ti_shortfall?: number;
-  transaction_costs?: number;
-  amortized_costs?: number;
-  net_cash_flow: number;
-}
+export type { AnnualLine };
 
 /**
  * Format number as currency
@@ -63,8 +54,12 @@ export const overlappingMonths = (
 ): number => {
   const s = new Date(Math.max(start.getTime(), a.getTime()));
   const e = new Date(Math.min(end.getTime(), b.getTime()));
-  if (s >= e) return 0;
-  return (e.getFullYear() - s.getFullYear()) * 12 + (e.getMonth() - s.getMonth()) + 1;
+  if (e < s) return 0;
+  let months = (e.getFullYear() - s.getFullYear()) * 12 + (e.getMonth() - s.getMonth()) + 1;
+  if (e.getDate() < s.getDate()) {
+    months -= 1;
+  }
+  return Math.max(0, months);
 };
 
 /**
