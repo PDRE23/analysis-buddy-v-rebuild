@@ -33,8 +33,17 @@ docs/           - Documentation
 ## Key Components
 - **AppContainer**: Main app shell with nav header and view switching
 - **PipelineApp/Dashboard**: Deal pipeline with kanban and list views
-- **LeaseAnalyzerApp**: Full lease analysis engine (5400+ lines)
+- **LeaseAnalyzerApp**: UI layer for lease analysis (~4,977 lines, calculation-free)
 - **DailyUpdateModal**: Daily deal status tracking
+
+## Calculation Architecture
+- **Single source of truth**: All financial calculations live in `src/lib/calculations/`
+  - `cashflow-engine.ts` — `buildAnnualCashflow()` (canonical cashflow builder)
+  - `metrics-engine.ts` — `npv()`, `npvFromFlows()`, `effectiveRentPSF()` (canonical metrics)
+- **Monthly compounding**: All NPV uses monthly compounding internally (EAR → monthly rate conversion)
+- **analysis-engine.ts** — orchestration layer, delegates to calculation engines
+- **Types**: Canonical `AnnualLine` type in `src/types/cashflow.ts`
+- **Conventions**: See `src/lib/calculations/CONVENTIONS.md` for rounding rules, escalation, and formulas
 
 ## Development
 - **Dev server**: `npx next dev -H 0.0.0.0 -p 5000`
@@ -49,5 +58,6 @@ docs/           - Documentation
 - X-Frame-Options set to ALLOWALL for iframe compatibility
 
 ## Recent Changes
+- 2026-02-16: P0 Math Hardening complete — removed ~505 lines of duplicate calc engine from LeaseAnalyzerApp, unified NPV to monthly compounding, consolidated AnnualLine types, added 13 parity tests (159 total), documented financial conventions
 - 2026-02-16: Premium UI redesign — "Modern Institutional" theme with navy/gold palette, polished components, refined header/nav, upgraded deal pipeline cards, premium login/signup pages, polished modals
 - 2026-02-16: Initial Replit setup — configured Next.js for Replit environment
