@@ -199,6 +199,8 @@ export function buildScenarioEconomics({
     rounding,
   });
 
+  const amortization = buildAmortizationSummary(scenarioInputs, rentSchedule, assumptions);
+
   const monthlyCashflow: MonthlyCashflowLine[] = rentSchedule.months.map((month) => {
     const base_rent = month.contractual_base_rent;
     const abatement_credit = month.free_rent_amount;
@@ -207,7 +209,8 @@ export function buildScenarioEconomics({
     const other_recurring = 0;
     const ti_shortfall = 0;
     const transaction_costs = 0;
-    const amortized_costs = 0;
+    const amortRow = amortization?.schedule[month.period_index];
+    const amortized_costs = amortRow ? amortRow.interest + amortRow.principal : 0;
     const subtotal = base_rent + operating + parking + other_recurring;
     const net_cash_flow =
       subtotal +
@@ -245,7 +248,6 @@ export function buildScenarioEconomics({
   const npv = npvMonthly(cashflows, assumptions.discountRateAnnual);
   const termMonths = rentSchedule.months.length;
   const blended = blendedRate(rentSchedule.summary.total_net_rent, scenarioInputs.rsf ?? 0, termMonths);
-  const amortization = buildAmortizationSummary(scenarioInputs, rentSchedule, assumptions);
   const dealCosts = buildDealCosts(scenarioInputs);
   const terminationPenaltyMonths = resolveTerminationPenaltyMonths(scenarioInputs);
 
