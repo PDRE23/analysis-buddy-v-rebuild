@@ -227,12 +227,9 @@ export const dealStorage = {
         }
       }
 
-      // If migrations were applied, save the migrated data
-      if (deals !== data.deals) {
-        setTimeout(() => {
-          dealStorage.save(deals);
-          console.log('💾 Migrated deals saved to storage');
-        }, 100);
+      if (deals !== data.deals && deals.length > 0) {
+        dealStorage.save(deals);
+        console.log('💾 Migrated deals saved to storage');
       }
 
       console.log('📁 Deals loaded successfully:', deals.length, 'deals');

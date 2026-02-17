@@ -1,7 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  allowedDevOrigins: ['*'],
+  allowedDevOrigins: ['*.replit.dev', '*.spock.replit.dev', '*.kirk.replit.dev', '*.picard.replit.dev', '*.janeway.replit.dev'],
   experimental: {
     optimizePackageImports: [
       "lucide-react",
@@ -33,7 +33,7 @@ const nextConfig: NextConfig = {
               "style-src-attr 'unsafe-inline'", // Allow inline style attributes
               "img-src 'self' data: blob:",
               "font-src 'self' data:",
-              "connect-src 'self' https://*.supabase.co https://*.supabase.in",
+              "connect-src 'self' ws: wss: https://*.supabase.co https://*.supabase.in",
               "frame-src 'self'",
               "object-src 'none'",
               "base-uri 'self'",

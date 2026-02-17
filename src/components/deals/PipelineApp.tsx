@@ -153,9 +153,17 @@ export function PipelineApp({
     deals.forEach((deal) => cache.set(cacheKeys.deal(deal.id), deal));
   }, [deals]);
 
+  const hasInitializedDeals = React.useRef(false);
   useEffect(() => {
     if (!supabase || !supabaseUser) {
-      dealStorage.save(deals);
+      if (!hasInitializedDeals.current) {
+        if (deals.length > 0) {
+          hasInitializedDeals.current = true;
+          dealStorage.save(deals);
+        }
+      } else {
+        dealStorage.save(deals);
+      }
     }
   }, [deals, supabase, supabaseUser]);
 
