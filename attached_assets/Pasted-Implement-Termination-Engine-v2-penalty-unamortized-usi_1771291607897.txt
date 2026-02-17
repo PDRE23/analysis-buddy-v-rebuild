@@ -1,0 +1,36 @@
+Implement Termination Engine v2 (penalty + unamortized) using existing monthlyEconomics. Minimal diff. No UI changes. Keep all tests passing.
+
+Goal:
+Compute termination fees by monthIndex using:
+1) Penalty rent = penaltyMonths * then-current monthly base rent
+2) Add unamortized amortization balance at that month (if amortization exists)
+Total = penalty rent + unamortized balance
+
+Definitions:
+- then-current monthly base rent = monthlyCashflow[monthIndex].base_rent
+- penaltyMonths = termination.penaltyMonths (already resolved)
+- unamortized balance:
+   If amortization exists, use the amortization schedule to get remaining balance at monthIndex.
+   If schedule provides remaining_balance (or similar), use it.
+   If not, compute remaining balance = totalToAmortize - cumulative_principal_paid_through_monthIndex.
+   (principal is in each AmortizationRow.)
+
+Implementation steps:
+1) In src/lib/analysis/scenarioEconomics.ts:
+   - Extend MonthlyEconomics["termination"] to include:
+     feeAtMonth: (monthIndex: number) => number
+     feesByMonth: number[]
+     componentsAtMonth?: (monthIndex: number) => { thenCurrentRent; penaltyRent; unamortized; totalFee; eqMonths }
+   - Implement a helper getUnamortizedBalanceAtMonth(amortization, monthIndex) with the rules above.
+   - Build feesByMonth for all months in term (0..termMonths-1) and attach it + feeAtMonth function.
+
+2) Add tests: src/lib/__tests__/terminationFeeEngine.test.ts
+   - Case A (no amortization): penaltyMonths=6, assert feeAtMonth(m)=6*base_rent at that month.
+   - Case B (with amortization): build a fixture with amortize_ti true, totalToAmortize > 0.
+     Assert:
+       a) feeAtMonth(0) > penaltyRent only (because unamortized > 0)
+       b) feeAtMonth(lastMonth) approximately equals penaltyRent only (unamortized ~0 near end)
+       c) feesByMonth length == termMonths and is non-increasing if only unamortized declines (allow minor float tolerance).
+
+No UI changes. Run all tests.
+Return summary of files changed.

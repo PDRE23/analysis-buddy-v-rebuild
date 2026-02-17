@@ -78,6 +78,7 @@ describe("analyzeLease normalized fallback parity", () => {
     const { normalized } = normalizeAnalysis(meta);
     const normalizedResult = analyzeLease(meta, normalized);
 
-    expect(normalizedResult).toEqual(legacy);
+    const strip = (obj: typeof legacy) => JSON.parse(JSON.stringify(obj));
+    expect(strip(normalizedResult)).toEqual(strip(legacy));
   });
 });

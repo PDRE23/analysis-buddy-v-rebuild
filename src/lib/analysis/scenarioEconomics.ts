@@ -60,8 +60,15 @@ export type MonthlyEconomics = {
   termination?: {
     penaltyMonths?: number;
     feeAt36?: number;
-    feeAtMonth?: (monthIndex: number) => number;
-    feesByMonth?: number[];
+    feeAtMonth: (monthIndex: number) => number;
+    feesByMonth: number[];
+    componentsAtMonth?: (monthIndex: number) => {
+      thenCurrentRent: number;
+      penaltyRent: number;
+      unamortized: number;
+      totalFee: number;
+      eqMonths: number;
+    };
   };
   assumptions: ScenarioEconomicsAssumptions;
 };
@@ -390,6 +397,27 @@ export function buildScenarioEconomics({
 
   const annualFromMonthly = rollupMonthlyToAnnual(monthlyCashflow);
 
+  const getUnamortizedBalance = (monthIndex: number): number => {
+    if (!amortization) return 0;
+    const schedule = amortization.schedule;
+    if (schedule.length === 0) return 0;
+    if (monthIndex <= 0) return amortization.totalToAmortize;
+    const clampedIdx = Math.min(monthIndex, schedule.length) - 1;
+    return schedule[clampedIdx].ending_balance;
+  };
+
+  const componentsAtMonth = (monthIndex: number) => {
+    const thenCurrentRent = monthlyCashflow[monthIndex]?.base_rent ?? 0;
+    const penaltyRent = thenCurrentRent * terminationPenaltyMonths;
+    const unamortized = getUnamortizedBalance(monthIndex);
+    const totalFee = penaltyRent + unamortized;
+    const eqMonths = thenCurrentRent > 0 ? totalFee / thenCurrentRent : 0;
+    return { thenCurrentRent, penaltyRent, unamortized, totalFee, eqMonths };
+  };
+
+  const feesByMonth = monthlyCashflow.map((_, i) => componentsAtMonth(i).totalFee);
+  const feeAtMonth = (monthIndex: number): number => componentsAtMonth(monthIndex).totalFee;
+
   return {
     rentSchedule,
     monthlyCashflow,
@@ -400,6 +428,9 @@ export function buildScenarioEconomics({
     dealCosts,
     termination: {
       penaltyMonths: terminationPenaltyMonths,
+      feeAtMonth,
+      feesByMonth,
+      componentsAtMonth,
     },
     assumptions,
   };
