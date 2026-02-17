@@ -399,11 +399,25 @@ export function buildScenarioEconomics({
 
   const getUnamortizedBalance = (monthIndex: number): number => {
     if (!amortization) return 0;
-    const schedule = amortization.schedule;
-    if (schedule.length === 0) return 0;
-    if (monthIndex <= 0) return amortization.totalToAmortize;
-    const clampedIdx = Math.min(monthIndex, schedule.length) - 1;
-    return schedule[clampedIdx].ending_balance;
+    const { schedule, totalToAmortize } = amortization;
+    if (schedule.length === 0 || totalToAmortize <= 0) return 0;
+    if (monthIndex <= 0) return totalToAmortize;
+    if (monthIndex >= schedule.length) return 0;
+    let raw: number;
+    const current = schedule[monthIndex] as Record<string, unknown> | undefined;
+    if (current && typeof current.beginning_balance === "number") {
+      raw = current.beginning_balance;
+    } else {
+      const prev = schedule[monthIndex - 1];
+      if (prev.ending_balance !== undefined) {
+        raw = prev.ending_balance;
+      } else {
+        let cumPrincipal = 0;
+        for (let i = 0; i < monthIndex; i++) cumPrincipal += schedule[i].principal;
+        raw = totalToAmortize - cumPrincipal;
+      }
+    }
+    return Math.max(0, Math.min(raw, totalToAmortize));
   };
 
   const componentsAtMonth = (monthIndex: number) => {

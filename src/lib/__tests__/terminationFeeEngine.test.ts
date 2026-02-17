@@ -73,17 +73,17 @@ describe("Termination Fee Engine v2", () => {
       expect(term.penaltyMonths).toBe(6);
     });
 
-    it("feeAtMonth equals 6 * base_rent at that month", () => {
+    it("feeAtMonth equals exactly 6 * base_rent at that month", () => {
       for (const m of [0, 6, 12, 24, 35]) {
         const baseRent = me.monthlyCashflow[m].base_rent;
-        expect(term.feeAtMonth(m)).toBeCloseTo(6 * baseRent, 4);
+        expect(term.feeAtMonth(m)).toBe(6 * baseRent);
       }
     });
 
-    it("componentsAtMonth shows zero unamortized", () => {
+    it("componentsAtMonth shows exactly zero unamortized", () => {
       const c = term.componentsAtMonth!(12);
       expect(c.unamortized).toBe(0);
-      expect(c.totalFee).toBeCloseTo(c.penaltyRent, 6);
+      expect(c.totalFee).toBe(c.penaltyRent);
     });
 
     it("feesByMonth length equals monthlyCashflow length", () => {
@@ -112,26 +112,48 @@ describe("Termination Fee Engine v2", () => {
     const me = result.monthlyEconomics!;
     const term = me.termination!;
 
-    it("feeAtMonth(0) exceeds penalty rent due to unamortized balance", () => {
+    it("unamortized at month 0 equals totalToAmortize exactly", () => {
       const c = term.componentsAtMonth!(0);
-      expect(c.unamortized).toBeGreaterThan(0);
-      expect(c.totalFee).toBeGreaterThan(c.penaltyRent);
+      expect(c.unamortized).toBe(me.amortization!.totalToAmortize);
     });
 
-    it("feeAtMonth(last) unamortized is less than feeAtMonth(0) unamortized", () => {
+    it("feeAtMonth(0) exceeds penalty rent by exactly totalToAmortize", () => {
+      const c = term.componentsAtMonth!(0);
+      expect(c.totalFee).toBe(c.penaltyRent + me.amortization!.totalToAmortize);
+    });
+
+    it("unamortized at month 1 equals ending_balance of schedule[0]", () => {
+      const c = term.componentsAtMonth!(1);
+      expect(c.unamortized).toBe(me.amortization!.schedule[0].ending_balance);
+    });
+
+    it("unamortized at last month equals balance before final payment", () => {
       const lastIdx = me.monthlyCashflow.length - 1;
-      const cLast = term.componentsAtMonth!(lastIdx);
-      const cFirst = term.componentsAtMonth!(0);
-      expect(cLast.unamortized).toBeLessThan(cFirst.unamortized);
+      const c = term.componentsAtMonth!(lastIdx);
+      const schedule = me.amortization!.schedule;
+      const expectedBalance = schedule[lastIdx - 1].ending_balance;
+      expect(c.unamortized).toBe(expectedBalance);
+      expect(c.unamortized).toBeGreaterThan(0);
     });
 
-    it("feesByMonth is non-increasing (within float tolerance)", () => {
-      for (let i = 1; i < term.feesByMonth.length; i++) {
-        expect(term.feesByMonth[i]).toBeLessThanOrEqual(term.feesByMonth[i - 1] + 0.01);
+    it("unamortized is strictly non-increasing", () => {
+      for (let i = 1; i < me.monthlyCashflow.length; i++) {
+        const prev = term.componentsAtMonth!(i - 1).unamortized;
+        const curr = term.componentsAtMonth!(i).unamortized;
+        expect(curr).toBeLessThanOrEqual(prev);
       }
     });
 
-    it("eqMonths at month 0 is > penaltyMonths when unamortized exists", () => {
+    it("unamortized is always within [0, totalToAmortize]", () => {
+      const total = me.amortization!.totalToAmortize;
+      for (let i = 0; i < me.monthlyCashflow.length; i++) {
+        const u = term.componentsAtMonth!(i).unamortized;
+        expect(u).toBeGreaterThanOrEqual(0);
+        expect(u).toBeLessThanOrEqual(total);
+      }
+    });
+
+    it("eqMonths at month 0 exceeds penaltyMonths", () => {
       const c = term.componentsAtMonth!(0);
       expect(c.eqMonths).toBeGreaterThan(term.penaltyMonths!);
     });

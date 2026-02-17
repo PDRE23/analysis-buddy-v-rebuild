@@ -1,0 +1,45 @@
+Assume this will be used in live negotiations and may be shown to a client, landlord, lender, or attorney. Any ambiguity or incorrect math is unacceptable.
+
+Implement Prompt 1 ONLY: Engine hardening + Scenario Driver Explanations.
+Keep diffs minimal. Do not refactor unrelated files. Keep all tests passing.
+
+FILES ALLOWED TO CHANGE
+- src/lib/analysis/scenarioEconomics.ts
+- src/lib/calculations/CONVENTIONS.md
+- src/lib/__tests__/terminationFeeEngine.test.ts (adjust if needed)
+- src/lib/scenario-engine.ts (only if needed to access base vs scenario)
+- src/lib/analysis/tenantStrategy.ts or src/lib/analysis/dealSheetSummary.ts (only if needed for display-ready driver output type)
+- Add at most 1 new pure helper file under src/lib/analysis/ (optional)
+
+GOALS (Do in this order)
+
+A) Make unamortized balance convention airtight
+1) In CONVENTIONS.md, explicitly define unamortized balance at monthIndex as the balance BEFORE that month’s payment.
+2) In scenarioEconomics.ts, update the unamortized helper to follow this convention consistently:
+   - If amort schedule rows provide beginning_balance, use it.
+   - Else compute: totalToAmortize - sum(principal for months < monthIndex).
+   - monthIndex 0 must equal totalToAmortize.
+   - Clamp within [0, totalToAmortize].
+3) Update termination componentsAtMonth to use this unamortized value.
+
+B) Scenario Driver Explanations (Top 3)
+Add a pure function that compares two MonthlyEconomics objects (base vs scenario) and returns the top 3 drivers by absolute impact on TOTAL net cash flow (sum of monthlyCashflow.net_cash_flow), grouped into:
+- Base Rent (contractual_base_rent)
+- Free Rent / Abatement (abatement_credit)
+- Operating (operating)
+- Parking (parking)
+- Amortized (amortized_costs)
+- One-time Costs (ti_shortfall + transaction_costs)
+- Other Recurring (other_recurring)
+
+Return shape example:
+{ label: string; delta: number; note?: string }
+with delta signed (scenario - base).
+
+Integrate these driver summaries into the scenario comparison result object so the UI can display them later WITHOUT UI changes. (If scenario-engine.ts is the right place, attach drivers to the scenario comparison output.)
+
+TESTS
+- Tighten/adjust terminationFeeEngine.test.ts expectations to the new unamortized convention (avoid loose tolerances).
+- Add a small new test for driver ranking (pure function) using two synthetic MonthlyEconomics stubs or by generating base+scenario from existing fixtures.
+
+Run all tests and report changed files + what was added.

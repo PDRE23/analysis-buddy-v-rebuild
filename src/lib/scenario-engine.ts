@@ -10,6 +10,7 @@ import type { AnalysisMeta } from "@/types";
 import type { AnalysisResult } from "./analysis-engine";
 import { analyzeLease } from "./analysis-engine";
 import { buildTenantStrategySummary, normalizeAnalysis } from "./analysis";
+import { compareScenarios, type ScenarioComparison } from "./analysis/scenarioDrivers";
 
 /**
  * Partial overrides for creating scenario variations
@@ -178,10 +179,16 @@ export function analyzeScenario(
  * @param scenarios - Array of scenario definitions with name and overrides
  * @returns Array of scenario results with names
  */
+export type ScenarioEntry = {
+  name: string;
+  result: AnalysisResult;
+  drivers?: ScenarioComparison;
+};
+
 export function analyzeScenarios(
   base: AnalysisMeta,
   scenarios: { name: string; overrides: ScenarioOverrides }[]
-): { name: string; result: AnalysisResult }[] {
+): ScenarioEntry[] {
   const results = scenarios.map((scenario) => ({
     name: scenario.name,
     result: analyzeScenario(base, scenario.overrides),
@@ -190,11 +197,21 @@ export function analyzeScenarios(
   if (results.length === 0) return results;
   const baseScenario = results.find(({ name }) => name === "Base Case") ?? results[0];
 
-  return results.map((entry) => ({
-    ...entry,
-    result: {
+  return results.map((entry) => {
+    const enrichedResult = {
       ...entry.result,
       tenantStrategySummary: buildTenantStrategySummary(entry.result, baseScenario.result),
-    },
-  }));
+    };
+    const baseMe = baseScenario.result.monthlyEconomics;
+    const scenarioMe = entry.result.monthlyEconomics;
+    const drivers =
+      baseMe && scenarioMe && entry.name !== baseScenario.name
+        ? compareScenarios(baseMe, scenarioMe)
+        : undefined;
+    return {
+      name: entry.name,
+      result: enrichedResult,
+      drivers,
+    };
+  });
 }

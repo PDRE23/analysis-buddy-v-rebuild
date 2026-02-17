@@ -64,6 +64,29 @@ net_cash_flow = subtotal + abatement_credit + ti_shortfall + transaction_costs +
 - `abatement_credit` is negative (reduces cash flow).
 - `ti_shortfall`, `transaction_costs`, `amortized_costs` are typically year-1 only.
 
+## Unamortized Balance (Termination Fees)
+
+The **unamortized balance at monthIndex** is defined as the outstanding amortization
+balance **before** that month's payment is applied.
+
+- `monthIndex 0` (first month): equals `totalToAmortize` — no payments have occurred yet.
+- `monthIndex N` (N ≥ 1): equals `schedule[N-1].ending_balance` — i.e., the balance after the previous month's payment, which is the balance before the current month's payment.
+- `monthIndex ≥ schedule.length`: the amortization is fully paid; return `0`.
+
+Resolution order:
+1. If `schedule[monthIndex].beginning_balance` is defined, use it directly (balance before that month's payment).
+2. Else if `schedule[monthIndex-1].ending_balance` is defined, use it (balance after previous payment = balance before current payment).
+3. Otherwise, compute `totalToAmortize - Σ(principal for months 0..monthIndex-1)`.
+
+The result is clamped to `[0, totalToAmortize]` to guard against floating-point drift.
+
+**Termination fee at monthIndex:**
+```
+penaltyRent = penaltyMonths × monthlyCashflow[monthIndex].base_rent
+totalFee    = penaltyRent + unamortizedBalance(monthIndex)
+eqMonths    = totalFee / base_rent   (if base_rent > 0)
+```
+
 ## Effective Rent
 
 ```
