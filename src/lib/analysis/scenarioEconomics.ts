@@ -2,14 +2,18 @@ import type { AnalysisMeta } from "@/types";
 import type { AmortizationRow } from "./amortization";
 import type { ScenarioEconomicsAssumptions } from "./assumptions";
 import type { MonthlyRentScheduleResult } from "./monthlyRentSchedule";
-import type { NormalizedBaseMeta } from "./normalized/types";
+import type { NormalizedBaseMeta, NormalizedEscalationPeriod } from "./normalized/types";
 import { buildAmortizationSchedule } from "./amortization";
 import { blendedRate } from "./effectiveRent";
 import { buildMonthlyRentSchedule } from "./monthlyRentSchedule";
 import { npvMonthly } from "./npv";
+import { parseDateOnly, parseDateInput } from "@/lib/dateOnly";
 
 export type ScenarioEconomicsInputs = {
   rsf?: number;
+  lease_type?: "FS" | "NNN";
+  base_year?: number;
+  operating?: AnalysisMeta["operating"];
   rentSchedule: AnalysisMeta["rent_schedule"];
   rentEscalation?: AnalysisMeta["rent_escalation"];
   concessions?: AnalysisMeta["concessions"];
@@ -175,6 +179,83 @@ function resolveTerminationPenaltyMonths(scenarioInputs: ScenarioEconomicsInputs
   return optionPenalty;
 }
 
+function buildMonthlyOperating(
+  scenarioInputs: ScenarioEconomicsInputs,
+  normalizedBaseMeta: NormalizedBaseMeta,
+  termMonths: number,
+  commencement: Date
+): number[] {
+  const opMeta = scenarioInputs.operating;
+  const rsf = scenarioInputs.rsf ?? 0;
+  const baseOpPsf = opMeta?.est_op_ex_psf ?? 0;
+  if (baseOpPsf === 0 || rsf === 0) return new Array(termMonths).fill(0);
+
+  const escalationType = opMeta?.escalation_type ?? "fixed";
+  const escalationValue = opMeta?.escalation_value ?? 0;
+  const escalationCap = opMeta?.escalation_cap;
+  const opExPeriods = normalizedBaseMeta.operating.escalation_periods;
+
+  const escalateFixed = (base: number, yearIdx: number): number => {
+    let escalated = base * Math.pow(1 + escalationValue, yearIdx);
+    if (escalationCap !== undefined) {
+      const capped = base * Math.pow(1 + escalationCap, yearIdx);
+      escalated = Math.min(escalated, capped);
+    }
+    return escalated;
+  };
+
+  const escalateCustom = (base: number, yearIdx: number): number => {
+    if (!opExPeriods || opExPeriods.length === 0) return base;
+    const yearStart = new Date(commencement);
+    yearStart.setFullYear(yearStart.getFullYear() + yearIdx);
+
+    for (const period of opExPeriods) {
+      const pStart = parseDateInput(period.period_start);
+      const pEnd = parseDateInput(period.period_end);
+      if (!pStart || !pEnd) continue;
+      if (yearStart >= pStart && yearStart <= pEnd) {
+        const periodStartYear = pStart.getFullYear();
+        const commYear = commencement.getFullYear();
+        const periodStartIdx = Math.max(0, periodStartYear - commYear);
+        const yearsSinceStart = yearIdx - periodStartIdx;
+        let basePsf = base * Math.pow(1 + period.escalation_percentage, periodStartIdx);
+        let escalated = basePsf * Math.pow(1 + period.escalation_percentage, yearsSinceStart);
+        if (escalationCap !== undefined) {
+          const capped = basePsf * Math.pow(1 + escalationCap, yearsSinceStart);
+          escalated = Math.min(escalated, capped);
+        }
+        return escalated;
+      }
+    }
+    return base;
+  };
+
+  const getEscalatedPsf = (yearIdx: number): number => {
+    if (escalationType === "custom") return escalateCustom(baseOpPsf, yearIdx);
+    return escalateFixed(baseOpPsf, yearIdx);
+  };
+
+  const leaseType = scenarioInputs.lease_type ?? "FS";
+  const commYear = commencement.getFullYear();
+  const baseYear = scenarioInputs.base_year ?? commYear;
+  const baseYearIdx = Math.max(0, baseYear - commYear);
+  const baseYearOpPsf = getEscalatedPsf(baseYearIdx);
+
+  const result: number[] = [];
+  for (let m = 0; m < termMonths; m++) {
+    const yearIdx = Math.floor(m / 12);
+    const escalatedPsf = getEscalatedPsf(yearIdx);
+    let monthlyOp: number;
+    if (leaseType === "NNN") {
+      monthlyOp = (escalatedPsf * rsf) / 12;
+    } else {
+      monthlyOp = Math.max(0, (escalatedPsf - baseYearOpPsf) * rsf) / 12;
+    }
+    result.push(monthlyOp);
+  }
+  return result;
+}
+
 export function buildScenarioEconomics({
   normalizedBaseMeta,
   scenarioInputs,
@@ -202,11 +283,15 @@ export function buildScenarioEconomics({
   const amortization = buildAmortizationSummary(scenarioInputs, rentSchedule, assumptions);
 
   const rsf = scenarioInputs.rsf ?? 0;
+  const commencement = parseDateOnly(normalizedBaseMeta.dates.commencement ?? "");
+  const monthlyOperatingArr = commencement
+    ? buildMonthlyOperating(scenarioInputs, normalizedBaseMeta, rentSchedule.months.length, commencement)
+    : new Array(rentSchedule.months.length).fill(0);
 
   const monthlyCashflow: MonthlyCashflowLine[] = rentSchedule.months.map((month) => {
     const base_rent = month.contractual_base_rent;
     const abatement_credit = month.free_rent_amount;
-    const operating = 0;
+    const operating = monthlyOperatingArr[month.period_index] ?? 0;
     const parking = 0;
     const other_recurring = 0;
     const isFirstMonth = month.period_index === 0;

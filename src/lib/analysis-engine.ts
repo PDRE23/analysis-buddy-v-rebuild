@@ -66,6 +66,9 @@ export function analyzeLease(input: AnalysisMeta, normalized?: NormalizedBaseMet
   };
   const scenarioInputs: ScenarioEconomicsInputs = {
     rsf: input.rsf,
+    lease_type: input.lease_type,
+    base_year: input.base_year,
+    operating: input.operating,
     rentSchedule: input.rent_schedule,
     rentEscalation: input.rent_escalation,
     concessions: input.concessions,
