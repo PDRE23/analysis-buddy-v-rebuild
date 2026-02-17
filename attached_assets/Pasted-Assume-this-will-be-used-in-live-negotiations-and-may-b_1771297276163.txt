@@ -1,0 +1,61 @@
+Assume this will be used in live negotiations and may be shown to a client, landlord, lender, or attorney. Any ambiguity is unacceptable.
+
+Goal: Upgrade the Annual Table and Lease Terms Summary to be client-ready, using monthlyEconomics as the source of truth. Keep diffs minimal. Do not refactor unrelated code. No math changes. Keep all tests passing.
+
+FILES ALLOWED TO CHANGE
+- src/components/analysis/AnalysisTab.tsx
+- src/components/analysis/YearTable.tsx (if this is the annual table)
+- src/components/analysis/KPI.tsx (only if needed for formatting)
+- src/components/analysis/Workspace.tsx (only if needed for prop wiring)
+- src/components/analysis/LeaseTermsSummary.tsx (if exists) OR add 1 new component:
+  src/components/analysis/LeaseTermsSummary.tsx
+
+TASKS
+
+A) Annual table polish (display only)
+1) Ensure the annual table uses:
+   annual = monthlyEconomics?.annualFromMonthly ?? cashflow
+2) Table rows should be, in this order:
+   - Base Rent
+   - Operating
+   - Parking
+   - Other Recurring
+   - Subtotal
+   - Abatement (Free Rent)
+   - TI Shortfall
+   - Transaction Costs
+   - Amortized Costs
+   - Net Cash Flow
+3) Add:
+   - Total column or Total row (sum across years)
+   - Per RSF row for: Subtotal and Net Cash Flow (divide by RSF, handle RSF=0 safely)
+4) Formatting:
+   - Currency formatting consistent with existing helpers (no new formatting utilities)
+   - Negative values display with minus sign and parentheses if existing style supports it
+5) Do not change calculation logic, only how it is displayed.
+
+B) Lease Terms Summary panel (client-facing)
+1) Add a “Lease Terms Summary” card above or beside the annual table in AnalysisTab.
+2) Populate fields from AnalysisMeta + normalized dates/term where available, plus monthlyEconomics assumptions:
+   Required fields:
+   - RSF
+   - Commencement, Expiration
+   - Term (months and years)
+   - Lease Type (FS/NNN)
+   - Base Year (if applicable)
+   - Starting Rent PSF (first rent_schedule rent_psf)
+   - Rent escalation summary (fixed percent / fixed amount / custom)
+   - Abatement summary (type, free months, applies_to)
+   - TI allowance PSF and total
+   - TI shortfall total (if any)
+   - Transaction costs total (if any)
+   - Parking summary if present (stalls, monthly rate, escalation)
+   - Discount rate used for NPV
+3) Keep it compact, two-column grid of label/value pairs. No new styling system.
+
+C) Verification
+- Run all tests.
+- Ensure no TypeScript/LSP errors.
+- Confirm UI renders with no runtime errors.
+
+Output: list files changed and where the Lease Terms Summary appears.

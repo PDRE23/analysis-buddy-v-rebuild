@@ -38,12 +38,13 @@ docs/           - Documentation
 
 ## Analysis Module Structure (src/components/analysis/)
 - **ProposalTab.tsx** (1,650 lines) — Lease proposal form with all input sections
-- **AnalysisTab.tsx** (386 lines) — Financial summary, metrics, and cashflow table display
+- **AnalysisTab.tsx** (~350 lines) — Financial summary, metrics, and cashflow table display
 - **CashflowTab.tsx** (73 lines) — Chart visualizations with lazy-loaded Recharts
 - **Workspace.tsx** (299 lines) — Tabbed workspace for editing a single proposal
 - **ProposalsBoard.tsx** (320 lines) — Proposal management board with duplicate/negotiation flow
 - **HomeList.tsx** (139 lines) — Analysis list/home view with search
-- **YearTable.tsx** (199 lines) — Annual cashflow table component
+- **YearTable.tsx** (~188 lines) — Annual cashflow table (row-per-category, year columns + Total, Per RSF rows)
+- **LeaseTermsSummary.tsx** (~115 lines) — Client-facing lease terms summary card
 - **QuickPresentationMode.tsx** (53 lines) — Quick presentation overlay
 - **KPI.tsx** (13 lines) — Key performance indicator display
 - **export-utils.ts** (166 lines) — CSV export and clipboard copy utilities
@@ -71,6 +72,7 @@ docs/           - Documentation
 - X-Frame-Options set to ALLOWALL for iframe compatibility
 
 ## Recent Changes
+- 2026-02-17: Client-ready polish — YearTable restructured to row-per-category layout (years as columns + Total column + Per RSF rows for Subtotal and Net Cash Flow); new LeaseTermsSummary component (RSF, dates, term, lease type, starting rent, escalation, abatement, TI, parking, discount rate); replaces old DealTermsSummaryCard + Lease Summary in AnalysisTab; 194 tests passing
 - 2026-02-17: UI upgrades — annualFromMonthly default view in AnalysisTab, TerminationPanel with month slider in ProposalTab (5 KPIs + milestone table), scenario driver bullets in ScenarioComparisonTable (color-coded deltas + net cashflow); 194 tests passing
 - 2026-02-17: Engine hardening — airtight unamortized balance convention (before-payment, ending_balance → cumulative-principal fallback, clamped to [0, totalToAmortize]); scenario driver explanations (compareScenarios in scenarioDrivers.ts, integrated into scenario-engine.ts ScenarioEntry); 194 tests passing
 - 2026-02-16: P1 Structural Refactoring complete — decomposed LeaseAnalyzerApp monolith from 4,977 → 1,162 lines (76.6% reduction), extracted 10 components + export utilities into src/components/analysis/, all 159 tests passing

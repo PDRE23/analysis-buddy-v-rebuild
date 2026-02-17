@@ -4,11 +4,11 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Copy, Download, Printer } from "lucide-react";
 import type { AnnualLine, AnalysisMeta } from "@/types";
-import { parseDateOnly, formatDateOnlyDisplay } from "@/lib/dateOnly";
-import { calculateLeaseTermParts, formatLeaseTerm } from "@/lib/leaseTermCalculations";
+import { parseDateOnly } from "@/lib/dateOnly";
+import { calculateLeaseTermParts } from "@/lib/leaseTermCalculations";
 import { effectiveRentPSF } from "@/lib/calculations/metrics-engine";
 import { calculateLandlordYield } from "@/lib/financialModeling";
-import { DealTermsSummaryCard } from "@/components/analysis/DealTermsSummaryCard";
+import { LeaseTermsSummary } from "@/components/analysis/LeaseTermsSummary";
 import { DetailedCashflowTable } from "@/components/analysis/DetailedCashflowTable";
 import { ScenarioComparisonTable } from "@/components/analysis/ScenarioComparisonTable";
 import { YearTable } from "@/components/analysis/YearTable";
@@ -135,8 +135,6 @@ export const AnalysisTab = React.memo(function AnalysisTab({ lines, meta }: { li
     };
   }, [lines, meta]);
 
-  const leaseTermDisplay = React.useMemo(() => formatLeaseTerm(meta), [meta]);
-
   return (
     <div className="space-y-4">
       {dataQuality.hasIssues && (
@@ -160,45 +158,7 @@ export const AnalysisTab = React.memo(function AnalysisTab({ lines, meta }: { li
         </Card>
       )}
 
-      <DealTermsSummaryCard meta={meta} />
-
-      <Card className="rounded-2xl">
-        <CardHeader>
-          <CardTitle>Lease Summary</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
-            <div>
-              <Label className="text-xs text-muted-foreground">Lease Term</Label>
-              <div className="text-sm font-semibold">{leaseTermDisplay}</div>
-            </div>
-            <div>
-              <Label className="text-xs text-muted-foreground">RSF</Label>
-              <div className="text-sm font-semibold">{meta.rsf.toLocaleString()} SF</div>
-            </div>
-            <div>
-              <Label className="text-xs text-muted-foreground">Lease Type</Label>
-              <div className="text-sm font-semibold">{meta.lease_type === 'FS' ? 'Full Service' : 'Triple Net'}</div>
-            </div>
-            <div>
-              <Label className="text-xs text-muted-foreground">Market</Label>
-              <div className="text-sm font-semibold">{meta.market}</div>
-            </div>
-            <div>
-              <Label className="text-xs text-muted-foreground">Commencement</Label>
-              <div className="text-sm font-semibold">
-                {formatDateOnlyDisplay(meta.key_dates.commencement)}
-              </div>
-            </div>
-            <div>
-              <Label className="text-xs text-muted-foreground">Expiration</Label>
-              <div className="text-sm font-semibold">
-                {formatDateOnlyDisplay(meta.key_dates.expiration)}
-              </div>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+      <LeaseTermsSummary meta={meta} />
 
       <Card className="rounded-2xl">
         <CardHeader>
