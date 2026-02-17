@@ -1,4 +1,4 @@
-import type { AnalysisMeta } from "@/types";
+import type { AnalysisMeta, AnnualLine } from "@/types";
 import type { AmortizationRow } from "./amortization";
 import type { ScenarioEconomicsAssumptions } from "./assumptions";
 import type { MonthlyRentScheduleResult } from "./monthlyRentSchedule";
@@ -43,6 +43,7 @@ export type MonthlyCashflowLine = {
 export type MonthlyEconomics = {
   rentSchedule: MonthlyRentScheduleResult;
   monthlyCashflow: MonthlyCashflowLine[];
+  annualFromMonthly: AnnualLine[];
   npv: number;
   blendedRate: number;
   amortization?: {
@@ -177,6 +178,50 @@ function resolveTerminationPenaltyMonths(scenarioInputs: ScenarioEconomicsInputs
   }
 
   return optionPenalty;
+}
+
+function rollupMonthlyToAnnual(monthlyCashflow: MonthlyCashflowLine[]): AnnualLine[] {
+  const groups = new Map<number, MonthlyCashflowLine[]>();
+  for (const m of monthlyCashflow) {
+    const groupIdx = Math.floor(m.monthIndex / 12);
+    let arr = groups.get(groupIdx);
+    if (!arr) {
+      arr = [];
+      groups.set(groupIdx, arr);
+    }
+    arr.push(m);
+  }
+
+  const sortedKeys = Array.from(groups.keys()).sort((a, b) => a - b);
+  return sortedKeys.map((groupIdx) => {
+    const months = groups.get(groupIdx)!;
+    const line: AnnualLine = {
+      year: groupIdx + 1,
+      base_rent: 0,
+      operating: 0,
+      parking: 0,
+      other_recurring: 0,
+      abatement_credit: 0,
+      ti_shortfall: 0,
+      transaction_costs: 0,
+      amortized_costs: 0,
+      subtotal: 0,
+      net_cash_flow: 0,
+    };
+    for (const m of months) {
+      line.base_rent += m.base_rent;
+      line.operating += m.operating;
+      line.parking += m.parking;
+      line.other_recurring += m.other_recurring;
+      line.abatement_credit += m.abatement_credit;
+      line.ti_shortfall = (line.ti_shortfall ?? 0) + m.ti_shortfall;
+      line.transaction_costs = (line.transaction_costs ?? 0) + m.transaction_costs;
+      line.amortized_costs = (line.amortized_costs ?? 0) + m.amortized_costs;
+      line.subtotal += m.subtotal;
+      line.net_cash_flow += m.net_cash_flow;
+    }
+    return line;
+  });
 }
 
 function buildMonthlyOperating(
@@ -343,9 +388,12 @@ export function buildScenarioEconomics({
   const dealCosts = buildDealCosts(scenarioInputs);
   const terminationPenaltyMonths = resolveTerminationPenaltyMonths(scenarioInputs);
 
+  const annualFromMonthly = rollupMonthlyToAnnual(monthlyCashflow);
+
   return {
     rentSchedule,
     monthlyCashflow,
+    annualFromMonthly,
     npv,
     blendedRate: blended,
     amortization,
