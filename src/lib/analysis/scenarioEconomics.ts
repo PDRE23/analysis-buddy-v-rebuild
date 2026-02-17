@@ -19,8 +19,26 @@ export type ScenarioEconomicsInputs = {
   terminationPenaltyMonths?: number;
 };
 
+export type MonthlyCashflowLine = {
+  monthIndex: number;
+  start_date: string;
+  end_date: string;
+  payment_date: string;
+  base_rent: number;
+  operating: number;
+  parking: number;
+  other_recurring: number;
+  abatement_credit: number;
+  ti_shortfall: number;
+  transaction_costs: number;
+  amortized_costs: number;
+  subtotal: number;
+  net_cash_flow: number;
+};
+
 export type MonthlyEconomics = {
   rentSchedule: MonthlyRentScheduleResult;
+  monthlyCashflow: MonthlyCashflowLine[];
   npv: number;
   blendedRate: number;
   amortization?: {
@@ -181,9 +199,47 @@ export function buildScenarioEconomics({
     rounding,
   });
 
-  const cashflows = rentSchedule.months.map((month) => ({
-    date: paymentTiming === "arrears" ? month.end_date : month.start_date,
-    amount: month.net_rent_due,
+  const monthlyCashflow: MonthlyCashflowLine[] = rentSchedule.months.map((month) => {
+    const base_rent = month.contractual_base_rent;
+    const abatement_credit = month.free_rent_amount;
+    const operating = 0;
+    const parking = 0;
+    const other_recurring = 0;
+    const ti_shortfall = 0;
+    const transaction_costs = 0;
+    const amortized_costs = 0;
+    const subtotal = base_rent + operating + parking + other_recurring;
+    const net_cash_flow =
+      subtotal +
+      abatement_credit +
+      ti_shortfall +
+      transaction_costs +
+      amortized_costs;
+
+    return {
+      monthIndex: month.period_index,
+      start_date: month.start_date,
+      end_date: month.end_date,
+      payment_date:
+        paymentTiming === "arrears"
+          ? month.end_date
+          : month.start_date,
+      base_rent,
+      operating,
+      parking,
+      other_recurring,
+      abatement_credit,
+      ti_shortfall,
+      transaction_costs,
+      amortized_costs,
+      subtotal,
+      net_cash_flow,
+    };
+  });
+
+  const cashflows = monthlyCashflow.map((m) => ({
+    date: m.payment_date,
+    amount: m.net_cash_flow,
   }));
 
   const npv = npvMonthly(cashflows, assumptions.discountRateAnnual);
@@ -195,6 +251,7 @@ export function buildScenarioEconomics({
 
   return {
     rentSchedule,
+    monthlyCashflow,
     npv,
     blendedRate: blended,
     amortization,
