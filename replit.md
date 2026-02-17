@@ -71,6 +71,7 @@ docs/           - Documentation
 - X-Frame-Options set to ALLOWALL for iframe compatibility
 
 ## Recent Changes
+- 2026-02-17: UI upgrades — annualFromMonthly default view in AnalysisTab, TerminationPanel with month slider in ProposalTab (5 KPIs + milestone table), scenario driver bullets in ScenarioComparisonTable (color-coded deltas + net cashflow); 194 tests passing
 - 2026-02-17: Engine hardening — airtight unamortized balance convention (before-payment, ending_balance → cumulative-principal fallback, clamped to [0, totalToAmortize]); scenario driver explanations (compareScenarios in scenarioDrivers.ts, integrated into scenario-engine.ts ScenarioEntry); 194 tests passing
 - 2026-02-16: P1 Structural Refactoring complete — decomposed LeaseAnalyzerApp monolith from 4,977 → 1,162 lines (76.6% reduction), extracted 10 components + export utilities into src/components/analysis/, all 159 tests passing
 - 2026-02-16: P0 Math Hardening complete — removed ~505 lines of duplicate calc engine from LeaseAnalyzerApp, unified NPV to monthly compounding, consolidated AnnualLine types, added 13 parity tests (159 total), documented financial conventions
