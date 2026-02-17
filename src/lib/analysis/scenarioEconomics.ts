@@ -201,14 +201,21 @@ export function buildScenarioEconomics({
 
   const amortization = buildAmortizationSummary(scenarioInputs, rentSchedule, assumptions);
 
+  const rsf = scenarioInputs.rsf ?? 0;
+
   const monthlyCashflow: MonthlyCashflowLine[] = rentSchedule.months.map((month) => {
     const base_rent = month.contractual_base_rent;
     const abatement_credit = month.free_rent_amount;
     const operating = 0;
     const parking = 0;
     const other_recurring = 0;
-    const ti_shortfall = 0;
-    const transaction_costs = 0;
+    const isFirstMonth = month.period_index === 0;
+    const ti_shortfall = isFirstMonth
+      ? Math.max(0, ((scenarioInputs.concessions?.ti_actual_build_cost_psf ?? 0) - (scenarioInputs.concessions?.ti_allowance_psf ?? 0)) * rsf)
+      : 0;
+    const transaction_costs = isFirstMonth
+      ? (scenarioInputs.transactionCosts?.total ?? 0)
+      : 0;
     const amortRow = amortization?.schedule[month.period_index];
     const amortized_costs = amortRow ? amortRow.interest + amortRow.principal : 0;
     const subtotal = base_rent + operating + parking + other_recurring;
