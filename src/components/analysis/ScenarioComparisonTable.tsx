@@ -22,7 +22,7 @@ import {
   type AmortizationRow,
 } from "@/lib/analysis";
 import { formatAssumptionsLine } from "@/lib/analysis/assumptions";
-import { analyzeScenarios } from "@/lib/scenario-engine";
+import { analyzeScenarios, type ScenarioEntry } from "@/lib/scenario-engine";
 import { normalizeAnalysis } from "@/lib/analysis/normalize/normalizeAnalysis";
 import { formatDateOnlyDisplay } from "@/lib/dateOnly";
 import type { MonthlyEconomics } from "@/lib/analysis/scenarioEconomics";
@@ -95,7 +95,7 @@ export function ScenarioComparisonTable({ baseMeta }: ScenarioComparisonTablePro
   };
 
   const scenarioRows = useMemo(() => {
-    return results.map(({ name, result }) => {
+    return results.map(({ name, result, drivers }) => {
       const overrides = overridesByName.get(name);
       const options = overrides?.options ?? baseMeta.options;
       const monthlyEconomics = result.monthlyEconomics;
@@ -152,6 +152,7 @@ export function ScenarioComparisonTable({ baseMeta }: ScenarioComparisonTablePro
         costs,
         penaltyMonths,
         rsf: overrides?.rsf ?? baseMeta.rsf,
+        drivers,
       };
     });
   }, [baseMeta, overridesByName, results]);
@@ -702,6 +703,33 @@ export function ScenarioComparisonTable({ baseMeta }: ScenarioComparisonTablePro
                 </div>
               )}
             </details>
+
+            {scenarioRows.some((row) => row.drivers) && (
+              <details open className="rounded-lg border bg-muted/10 p-3">
+                <summary className="cursor-pointer font-medium">Key Drivers vs Base</summary>
+                <div className="mt-3 grid gap-4 md:grid-cols-2">
+                  {scenarioRows.filter((row) => row.drivers).map((row) => (
+                    <div key={row.name} className="rounded-lg border bg-background p-3">
+                      <div className="font-medium text-sm mb-2">{row.name}</div>
+                      <ul className="space-y-1">
+                        {row.drivers!.topDrivers.map((d) => (
+                          <li key={d.key} className="text-sm flex items-start gap-1.5">
+                            <span className={d.delta > 0 ? "text-green-600" : "text-red-600"}>
+                              {d.delta > 0 ? "+" : ""}
+                              {formatCurrency(d.delta)}
+                            </span>
+                            <span className="text-muted-foreground">{d.label}</span>
+                          </li>
+                        ))}
+                      </ul>
+                      <div className="mt-2 pt-2 border-t text-xs text-muted-foreground">
+                        Net cashflow delta: {formatSignedCurrency(row.drivers!.totalCashflowDelta)}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </details>
+            )}
 
             {hasAmortization ? (
               <details className="rounded-lg border bg-muted/10 p-3">

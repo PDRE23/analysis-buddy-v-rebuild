@@ -267,10 +267,11 @@ export function Workspace({
             onRequestSave={(handler) => {
               saveRequestRef.current = handler;
             }}
+            monthlyEconomics={analysisResult.monthlyEconomics}
           />
         </TabsContent>
         <TabsContent value="analysis" className="overflow-y-auto flex-1 min-h-0">
-          <AnalysisTab lines={lines} meta={meta} />
+          <AnalysisTab lines={analysisResult.monthlyEconomics?.annualFromMonthly ?? lines} meta={meta} />
         </TabsContent>
         <TabsContent value="cashflow" className="overflow-y-auto flex-1 min-h-0">
           <CashflowTab lines={lines} meta={meta} proposals={allProposals || [proposal]} />

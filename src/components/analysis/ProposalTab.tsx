@@ -57,15 +57,18 @@ import type {
   OpExEscalationPeriod,
   RentRow,
 } from "@/types";
+import type { MonthlyEconomics } from "@/lib/analysis/scenarioEconomics";
 
 export function ProposalTab({
   a,
   onSave,
-  onRequestSave
+  onRequestSave,
+  monthlyEconomics
 }: {
   a: AnalysisMeta;
   onSave: (patch: AnalysisMeta) => void;
   onRequestSave?: (handler: () => void) => void;
+  monthlyEconomics?: MonthlyEconomics;
 }) {
   const [showConfirmation, setShowConfirmation] = React.useState(false);
   const [pendingData, setPendingData] = React.useState<AnalysisMeta | null>(null);
@@ -1644,7 +1647,122 @@ export function ProposalTab({
           </div>
         </CardContent>
       </Card>
+
+      <TerminationPanel monthlyEconomics={monthlyEconomics} />
       </div>
     </>
+  );
+}
+
+const fmtMoney = (v: number) =>
+  v.toLocaleString(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 0 });
+
+function TerminationPanel({ monthlyEconomics }: { monthlyEconomics?: MonthlyEconomics }) {
+  const termination = monthlyEconomics?.termination;
+  const termMonths = monthlyEconomics?.monthlyCashflow.length ?? 0;
+  const defaultMonth = termMonths > 36 ? 36 : Math.floor(termMonths / 2);
+  const [selectedMonth, setSelectedMonth] = React.useState(defaultMonth);
+
+  React.useEffect(() => {
+    const next = termMonths > 36 ? 36 : Math.floor(termMonths / 2);
+    setSelectedMonth(next);
+  }, [termMonths]);
+
+  if (!termination || !termination.componentsAtMonth) {
+    return (
+      <Card className="rounded-2xl">
+        <CardHeader>
+          <CardTitle>Termination</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm text-muted-foreground">No termination option modeled.</p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const comp = termination.componentsAtMonth(selectedMonth);
+  const milestones = [12, 24, 36, 60, termMonths - 1].filter(
+    (m, i, arr) => m >= 0 && m < termMonths && arr.indexOf(m) === i
+  );
+
+  return (
+    <Card className="rounded-2xl">
+      <CardHeader>
+        <CardTitle className="flex items-center justify-between">
+          <span>Termination</span>
+          <span className="text-lg font-bold text-primary">{fmtMoney(comp.totalFee)}</span>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div>
+          <Label className="text-xs text-muted-foreground mb-1 block">
+            Month {selectedMonth} of {termMonths - 1}
+          </Label>
+          <input
+            type="range"
+            min={0}
+            max={termMonths - 1}
+            value={selectedMonth}
+            onChange={(e) => setSelectedMonth(Number(e.target.value))}
+            className="w-full accent-primary"
+          />
+        </div>
+
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+          <div>
+            <Label className="text-xs text-muted-foreground">Penalty Months</Label>
+            <div className="text-sm font-semibold">{termination.penaltyMonths ?? 0}</div>
+          </div>
+          <div>
+            <Label className="text-xs text-muted-foreground">Current Monthly Rent</Label>
+            <div className="text-sm font-semibold">{fmtMoney(comp.thenCurrentRent)}</div>
+          </div>
+          <div>
+            <Label className="text-xs text-muted-foreground">Penalty Rent</Label>
+            <div className="text-sm font-semibold">{fmtMoney(comp.penaltyRent)}</div>
+          </div>
+          <div>
+            <Label className="text-xs text-muted-foreground">Unamortized Balance</Label>
+            <div className="text-sm font-semibold">{fmtMoney(comp.unamortized)}</div>
+          </div>
+          <div>
+            <Label className="text-xs text-muted-foreground">Equivalent Months</Label>
+            <div className="text-sm font-semibold">{comp.eqMonths.toFixed(1)}</div>
+          </div>
+        </div>
+
+        {milestones.length > 0 && (
+          <div className="pt-2 border-t">
+            <Label className="text-xs text-muted-foreground mb-2 block">Fee at Key Months</Label>
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-sm">
+                <thead>
+                  <tr className="border-b bg-muted/40">
+                    <th className="text-left p-1.5 font-medium">Month</th>
+                    <th className="text-right p-1.5 font-medium">Penalty</th>
+                    <th className="text-right p-1.5 font-medium">Unamortized</th>
+                    <th className="text-right p-1.5 font-medium">Total Fee</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {milestones.map((m) => {
+                    const c = termination.componentsAtMonth!(m);
+                    return (
+                      <tr key={m} className="border-b">
+                        <td className="p-1.5">{m}{m === termMonths - 1 ? " (end)" : ""}</td>
+                        <td className="p-1.5 text-right">{fmtMoney(c.penaltyRent)}</td>
+                        <td className="p-1.5 text-right">{fmtMoney(c.unamortized)}</td>
+                        <td className="p-1.5 text-right font-medium">{fmtMoney(c.totalFee)}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }

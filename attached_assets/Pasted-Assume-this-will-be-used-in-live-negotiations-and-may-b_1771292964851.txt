@@ -1,0 +1,51 @@
+Assume this will be used in live negotiations and may be shown to a client, landlord, lender, or attorney. Any ambiguity or incorrect math is unacceptable.
+
+Implement Prompt 2 ONLY: UI upgrades.
+Keep diffs minimal. Do not restyle the app. Use existing components. Keep all tests passing.
+
+FILES ALLOWED TO CHANGE
+- src/components/analysis/ProposalTab.tsx (preferred)
+- src/components/analysis/AnalysisTab.tsx (if the annual table lives here)
+- src/components/analysis/Workspace.tsx (only if needed to pass props)
+- src/components/analysis/ScenarioComparisonTable.tsx (or whatever renders scenario comparisons)
+- Add at most 1 new small component: src/components/analysis/TerminationPanel.tsx (optional)
+
+GOALS (Do in this order)
+
+1) Make annual rollup the default client view
+- Wherever the annual cashflow table is rendered, use:
+  result.monthlyEconomics?.annualFromMonthly ?? result.cashflow
+- Do NOT remove legacy cashflow. This is display-only.
+
+2) Add a Termination section with a month slider (client-facing)
+- Add a “Termination” panel (ProposalTab preferred) that:
+  a) Determines termMonths from monthlyEconomics.monthlyCashflow.length
+  b) Default selected month:
+     - 36 if termMonths > 36 else Math.floor(termMonths/2)
+  c) Slider bounds:
+     - min = 0 (or 12 if you choose; if you choose 12, explain in comments)
+     - max = termMonths - 1
+  d) On change, calls termination.componentsAtMonth(monthIndex) and displays:
+     - thenCurrentRent
+     - penaltyRent
+     - unamortized
+     - totalFee
+     - eqMonths
+  e) Also display penaltyMonths and a single headline number for totalFee
+- If no termination modeled, show a simple empty state (“No termination option modeled.”)
+- Optional (lightweight): show a tiny table for fees at Month 12 / 24 / 36 / 60 / end (only those that exist). No new chart libs.
+
+3) Display Scenario Driver Explanations in scenario comparison UI
+- In scenario comparison table/list, for each non-base scenario:
+  - Render top 3 drivers as bullets:
+    “+/- $X: <Label>”
+  - Use the drivers returned by analyzeScenarios() (e.g., entry.drivers.topDrivers).
+- Keep it compact and readable. No new styling framework.
+
+VALIDATION
+- No runtime errors in the app.
+- Tests pass.
+
+OUTPUT
+- List files changed
+- Tell me exactly where in the UI to click to see the termination slider + driver bullets.
