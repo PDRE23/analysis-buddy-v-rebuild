@@ -79,9 +79,10 @@ export async function exportAnalysis(
   cashflow: CashflowLine[],
   metrics: { effectiveRate: number; npv: number; totalYears: number },
   config: ExportConfig,
-  proposalInfo?: { side: string; label: string }
+  proposalInfo?: { side: string; label: string },
+  enrichedData?: ExportData
 ): Promise<void> {
-  const exportData: ExportData = {
+  const exportData: ExportData = enrichedData || {
     analysis,
     cashflow,
     metrics,
@@ -166,32 +167,35 @@ export const quickExport = {
     metrics: { effectiveRate: number; npv: number; totalYears: number }
   ): Promise<void> => {
     await exportAnalysis('pdf', analysis, cashflow, metrics, {
+      includeLeaseTerms: true,
       includeSummary: true,
       includeRentSchedule: true,
       includeCashflow: true,
       includeMetrics: true,
       includeCharts: false,
       includeNotes: true,
+      includeNER: false,
+      includeCommission: false,
       format: 'letter',
-      orientation: 'portrait',
+      orientation: 'landscape',
     });
   },
   
-  /**
-   * Quick Excel export with default settings
-   */
   toExcel: async (
     analysis: AnalysisData,
     cashflow: CashflowLine[],
     metrics: { effectiveRate: number; npv: number; totalYears: number }
   ): Promise<void> => {
     await exportAnalysis('excel', analysis, cashflow, metrics, {
+      includeLeaseTerms: true,
       includeSummary: true,
       includeRentSchedule: true,
       includeCashflow: true,
       includeMetrics: true,
       includeCharts: false,
       includeNotes: true,
+      includeNER: false,
+      includeCommission: false,
     });
   },
   
