@@ -13,7 +13,7 @@ import { parseDateInput, parseDateOnly } from "../dateOnly";
 /** Apply CPI or fixed escalation to a base value for N periods. */
 function escalate(value: number, n: number, method: "fixed" | "cpi" = "fixed", rate = 0, cap?: number): number {
   if (n <= 0) return value;
-  const effectiveRate = cap !== undefined ? Math.min(rate, cap) : rate;
+  const effectiveRate = cap !== undefined && cap > 0 ? Math.min(rate, cap) : rate;
   const r = Math.max(0, effectiveRate);
   return value * Math.pow(1 + r, n); // CPI treated as provided rate
 }
@@ -267,16 +267,18 @@ export function buildAnnualCashflow(a: AnalysisMeta, normalized?: NormalizedBase
       ? buildCustomEscalationLookup(manualBase, termPeriods, opExEscalationPeriods)
       : undefined;
 
+  const roundPsf = (v: number) => Math.round(v * 100) / 100;
+
   const getEscalatedOp = (base: number, idx: number, lookup?: CustomEscalationLookup): number => {
     if (opExEscalationType === "fixed") {
       const value = a.operating.escalation_value ?? 0;
       const cap = a.operating.escalation_cap;
-      return escalate(base, idx, method, value, cap);
+      return roundPsf(escalate(base, idx, method, value, cap));
     }
     if (opExEscalationType === "custom" && opExEscalationPeriods && lookup) {
       const periodIndex = lookup.termYearToPeriodIndex.get(idx);
       if (periodIndex === undefined || lookup.periodFirstTermYear[periodIndex] === undefined) {
-        return base;
+        return roundPsf(base);
       }
       const escalationRate = lookup.sortedPeriods[periodIndex].escalation_percentage;
       const yearsSincePeriodStart = idx - (lookup.periodFirstTermYear[periodIndex] as number);
@@ -286,11 +288,11 @@ export function buildAnnualCashflow(a: AnalysisMeta, normalized?: NormalizedBase
         const maxEscalated = baseAtStart * Math.pow(1 + a.operating.escalation_cap, yearsSincePeriodStart);
         escalated = Math.min(escalated, maxEscalated);
       }
-      return escalated;
+      return roundPsf(escalated);
     }
     const value = a.operating.escalation_value ?? 0;
     const cap = a.operating.escalation_cap;
-    return escalate(base, idx, method, value, cap);
+    return roundPsf(escalate(base, idx, method, value, cap));
   };
   const escalatedOpByTermIndex: number[] = new Array(termPeriods.length).fill(baseOp);
 
@@ -302,41 +304,17 @@ export function buildAnnualCashflow(a: AnalysisMeta, normalized?: NormalizedBase
 
     if (a.lease_type === "FS") {
       if (useManualPassThrough) {
-        const passthrough = (manualEscalated ?? 0) * rsf;
+        const passthrough = Math.round((manualEscalated ?? 0) * rsf);
         addToIndex(idx, "operating", passthrough);
         continue;
       }
-      let baseYearOp: number;
-      if (opExEscalationType === "fixed") {
-        const value = a.operating.escalation_value ?? 0;
-        const cap = a.operating.escalation_cap;
-        baseYearOp = escalate(baseOp, Math.max(0, idx - baseYearIndex), method, value, cap);
-      } else if (opExEscalationType === "custom" && opExEscalationPeriods && opExLookup) {
-        const periodIndex = opExLookup.termYearToPeriodIndex.get(baseYearIndex);
-        if (periodIndex === undefined || opExLookup.periodFirstTermYear[periodIndex] === undefined) {
-          baseYearOp = baseOp;
-        } else {
-          const escalationRate = opExLookup.sortedPeriods[periodIndex].escalation_percentage;
-          const yearsSincePeriodStart = baseYearIndex - (opExLookup.periodFirstTermYear[periodIndex] as number);
-          const baseAtStart = opExLookup.periodBaseAtStart[periodIndex];
-          baseYearOp = baseAtStart * Math.pow(1 + escalationRate, yearsSincePeriodStart);
-          if (a.operating.escalation_cap) {
-            const maxEscalated = baseAtStart * Math.pow(1 + a.operating.escalation_cap, yearsSincePeriodStart);
-            baseYearOp = Math.min(baseYearOp, maxEscalated);
-          }
-        }
-      } else {
-        const value = a.operating.escalation_value ?? 0;
-        const cap = a.operating.escalation_cap;
-        baseYearOp = escalate(baseOp, Math.max(0, idx - baseYearIndex), method, value, cap);
-      }
-
       // FS passthrough: tenant pays opex increases above base year
-      const passthrough = Math.max(0, escalatedOp - baseYearOp) * rsf;
+      const baseYearOp = getEscalatedOp(baseOp, baseYearIndex, opExLookup);
+      const passthrough = Math.round(Math.max(0, escalatedOp - baseYearOp) * rsf);
       addToIndex(idx, "operating", passthrough);
     } else {
       // NNN lease: tenant pays all opex
-      const passthrough = escalatedOp * rsf;
+      const passthrough = Math.round(escalatedOp * rsf);
       addToIndex(idx, "operating", passthrough);
     }
   }
