@@ -15,9 +15,15 @@ import { CashflowTab } from "@/components/analysis/CashflowTab";
 import { ProposalTab } from "@/components/analysis/ProposalTab";
 import { KPI } from "@/components/analysis/KPI";
 import { CommissionCalculator } from "@/components/deals/CommissionCalculator";
-import type { AnalysisMeta, Proposal } from "@/types";
+import { calculateLandlordYield } from "@/lib/financialModeling";
+import { calculateLeaseTermParts } from "@/lib/leaseTermCalculations";
+import { effectiveRentPSF } from "@/lib/calculations/metrics-engine";
+import { performNERAnalysis } from "@/lib/nerCalculations";
+import { calculateCommission, DEFAULT_OFFICE_COMMISSION } from "@/lib/commission";
+import { parseDateOnly } from "@/lib/dateOnly";
+import type { AnalysisMeta, Proposal, AnnualLine } from "@/types";
 import type { ExportConfig } from "@/lib/export/types";
-import type { AnalysisData, CashflowLine } from "@/lib/export/pdf-export";
+import type { AnalysisData, CashflowLine, ExportData, NERExportData, CommissionExportData } from "@/lib/export/pdf-export";
 import type { Deal } from "@/lib/types/deal";
 
 const fmtMoney = (v: number | undefined) =>
@@ -62,16 +68,140 @@ export function Workspace({
 
   const [showExportDialog, setShowExportDialog] = useState(false);
 
+  const exportEnrichedData = useMemo(() => {
+    const leaseLines = analysisResult.monthlyEconomics?.annualFromMonthly ?? lines;
+    const leaseTermParts = calculateLeaseTermParts(meta);
+    const leaseTermYears = leaseTermParts ? leaseTermParts.years + leaseTermParts.months / 12 : years;
+    const leaseTermMonths = leaseTermParts ? leaseTermParts.years * 12 + leaseTermParts.months : Math.round(years * 12);
+
+    const totalLeaseValue = leaseLines.reduce((sum: number, l: AnnualLine) => sum + l.net_cash_flow, 0);
+    const averageAnnualCashflow = leaseLines.length > 0 ? totalLeaseValue / leaseLines.length : 0;
+    const effectiveTermYears = leaseTermYears > 0 ? leaseTermYears : leaseLines.length;
+    const effectiveRentPSFValue = effectiveRentPSF(leaseLines, meta.rsf, effectiveTermYears);
+
+    const startingRent = leaseLines.length > 0 ? leaseLines[0].base_rent : 0;
+    const endingRent = leaseLines.length > 0 ? leaseLines[leaseLines.length - 1].base_rent : 0;
+
+    let freeRentValue = 0;
+    if (meta.concessions?.abatement_type === "at_commencement") {
+      const freeMonths = meta.concessions.abatement_free_rent_months || 0;
+      if (freeMonths > 0 && meta.rent_schedule.length > 0) {
+        freeRentValue = (freeMonths / 12) * (meta.rent_schedule[0].rent_psf * meta.rsf);
+      }
+    } else if (meta.concessions?.abatement_type === "custom" && meta.concessions.abatement_periods) {
+      for (const period of meta.concessions.abatement_periods) {
+        let rentRate = 0;
+        for (const r of meta.rent_schedule) {
+          const rStart = parseDateOnly(r.period_start) ?? new Date(r.period_start);
+          const rEnd = parseDateOnly(r.period_end) ?? new Date(r.period_end);
+          const periodStart = parseDateOnly(period.period_start) ?? new Date(period.period_start);
+          if (periodStart >= rStart && periodStart <= rEnd) { rentRate = r.rent_psf; break; }
+        }
+        freeRentValue += (period.free_rent_months / 12) * (rentRate * meta.rsf);
+      }
+    }
+
+    const totalConcessions =
+      (meta.concessions.ti_allowance_psf || 0) * meta.rsf +
+      (meta.concessions.moving_allowance || 0) +
+      (meta.concessions.other_credits || 0) +
+      freeRentValue;
+
+    const tiTotal = (meta.concessions.ti_allowance_psf || 0) * meta.rsf;
+    const txTotal = meta.transaction_costs?.total || 0;
+    const tiShortfall = leaseLines.length > 0 && leaseLines[0].ti_shortfall ? leaseLines[0].ti_shortfall : 0;
+    const initialInvestment = tiTotal + txTotal + freeRentValue + tiShortfall;
+    const discountRate = meta.cashflow_settings?.discount_rate || 0.08;
+    const yieldMetrics = calculateLandlordYield(leaseLines, initialInvestment, discountRate);
+
+    let nerExport: NERExportData | undefined;
+    try {
+      const baseRent = meta.rent_schedule[0]?.rent_psf || 0;
+      const termYearsNER = leaseTermYears > 0 ? leaseTermYears : years;
+      if (baseRent > 0 && termYearsNER > 0) {
+        const nerInput = {
+          id: `ner_${meta.id}`,
+          analysisId: meta.id,
+          baseRentYears1to5: baseRent,
+          baseRentYears6toLXD: baseRent * 1.08,
+          monthsFree: meta.concessions?.abatement_free_rent_months || 0,
+          tiNbiValue: meta.concessions?.ti_allowance_psf || 0,
+          rsf: meta.rsf,
+          termYears: termYearsNER,
+          discountRate,
+        };
+        const nerResult = performNERAnalysis(nerInput);
+        if (nerResult.summary && nerResult.yearlyBreakdown && nerResult.calculations && nerResult.startingNERCalc) {
+          nerExport = {
+            ner: nerResult.summary.ner,
+            nerWithInterest: nerResult.summary.nerWithInterest,
+            startingNER: nerResult.summary.startingNER,
+            yearlyBreakdown: nerResult.yearlyBreakdown,
+            calculations: nerResult.calculations,
+            startingNERCalc: nerResult.startingNERCalc,
+          };
+        }
+      }
+    } catch { /* NER optional */ }
+
+    let commExport: CommissionExportData | undefined;
+    try {
+      const commStructure = meta.commissionStructure || DEFAULT_OFFICE_COMMISSION;
+      const commResult = calculateCommission(meta, commStructure);
+      if (commResult.total > 0) {
+        commExport = {
+          total: commResult.total,
+          breakdown: commResult.breakdown,
+          structure: {
+            yearOneBrokerage: commStructure.yearOneBrokerage,
+            subsequentYears: commStructure.subsequentYears,
+            splitPercentage: commStructure.splitPercentage,
+            acceleratedPayment: commStructure.acceleratedPayment,
+          },
+        };
+      }
+    } catch { /* commission optional */ }
+
+    return {
+      leaseLines,
+      summaryStats: {
+        totalLeaseValue,
+        averageAnnualCashflow,
+        totalConcessions,
+        startingRent,
+        endingRent,
+        leaseTermYears,
+        leaseTermMonths,
+      },
+      yieldMetrics: {
+        irr: yieldMetrics.irr,
+        yieldOnCost: yieldMetrics.yieldOnCost,
+        equityMultiple: yieldMetrics.equityMultiple,
+        paybackPeriod: yieldMetrics.paybackPeriod,
+        cashOnCashReturn: yieldMetrics.cashOnCashReturn,
+        netYield: yieldMetrics.netYield,
+      },
+      effectiveRentPSFValue,
+      nerExport,
+      commExport,
+    };
+  }, [meta, lines, years, analysisResult.monthlyEconomics]);
+
+  const buildExportData = (config: ExportConfig): { data: ExportData; analysisData: AnalysisData; cashflowData: CashflowLine[]; metrics: { effectiveRate: number; npv: number; totalYears: number } } => {
+    const enriched = exportEnrichedData;
+    const analysisData: AnalysisData = meta as any;
+    const cashflowData: CashflowLine[] = enriched.leaseLines as any;
+    const metrics = { effectiveRate: enriched.effectiveRentPSFValue, npv: pvV, totalYears: years };
+    return { data: { analysis: analysisData, cashflow: cashflowData, metrics, summaryStats: enriched.summaryStats, yieldMetrics: enriched.yieldMetrics, nerData: config.includeNER ? enriched.nerExport : undefined, commissionData: config.includeCommission ? enriched.commExport : undefined, proposalLabel: proposal.label || 'Proposal', proposalSide: proposal.side }, analysisData, cashflowData, metrics };
+  };
+
   const handleExportPDF = async (config: ExportConfig) => {
     try {
-      const analysisData: AnalysisData = meta as any;
-      const cashflowData: CashflowLine[] = lines as any;
-      const metrics = { effectiveRate: eff, npv: pvV, totalYears: years };
-      
+      const { analysisData, cashflowData, metrics, data } = buildExportData(config);
       await exportAnalysis('pdf', analysisData, cashflowData, metrics, config, {
         side: proposal.side,
         label: proposal.label || 'Proposal',
-      });
+      }, data);
     } catch (error) {
       console.error('PDF export failed:', error);
       throw error;
@@ -80,10 +210,7 @@ export function Workspace({
 
   const handleExportExcel = async (config: ExportConfig) => {
     try {
-      const analysisData: AnalysisData = meta as any;
-      const cashflowData: CashflowLine[] = lines as any;
-      const metrics = { effectiveRate: eff, npv: pvV, totalYears: years };
-      
+      const { analysisData, cashflowData, metrics } = buildExportData(config);
       await exportAnalysis('excel', analysisData, cashflowData, metrics, config, {
         side: proposal.side,
         label: proposal.label || 'Proposal',
@@ -96,10 +223,7 @@ export function Workspace({
 
   const handlePrint = (config: ExportConfig) => {
     try {
-      const analysisData: AnalysisData = meta as any;
-      const cashflowData: CashflowLine[] = lines as any;
-      const metrics = { effectiveRate: eff, npv: pvV, totalYears: years };
-      
+      const { analysisData, cashflowData, metrics } = buildExportData(config);
       exportAnalysis('print', analysisData, cashflowData, metrics, config, {
         side: proposal.side,
         label: proposal.label || 'Proposal',
@@ -121,6 +245,8 @@ export function Workspace({
         onExportExcel={handleExportExcel}
         onPrint={handlePrint}
         proposalName={`${proposal.side} - ${proposal.label || meta.name}`}
+        hasNERData={!!exportEnrichedData.nerExport}
+        hasCommissionData={!!exportEnrichedData.commExport}
       />
 
       {/* Header */}
