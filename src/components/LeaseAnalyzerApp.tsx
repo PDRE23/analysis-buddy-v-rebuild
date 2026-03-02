@@ -95,32 +95,40 @@ const baseScenario = (): AnalysisMeta => ({
   proposals: [],
 });
 
-const demoProposals = (): Proposal[] => {
+/** Create demo proposals that inherit from their parent analysis context */
+const createProposalsFromAnalysis = (analysis: AnalysisMeta): Proposal[] => {
+  const { proposals: _, ...snapshot } = analysis;
+
   const ll: Proposal = {
     id: nanoid(),
     side: "Landlord",
     label: "LL v1",
     created_at: new Date().toISOString(),
-    meta: { ...baseScenario(), name: "Landlord Proposal v1" },
+    meta: { ...snapshot, proposals: [], name: `${analysis.name} - Landlord v1` },
   };
+
+  // Tenant counter: slightly lower rent to show comparison
+  const tenantRentSchedule = analysis.rent_schedule.map(row => ({
+    ...row,
+    rent_psf: Math.round(row.rent_psf * 0.95 * 100) / 100,
+  }));
+
   const tn: Proposal = {
     id: nanoid(),
     side: "Tenant",
     label: "Tenant Counter 1",
     created_at: new Date().toISOString(),
     meta: {
-      ...baseScenario(),
-      name: "Tenant Counter v1",
-      rent_schedule: [
-        { period_start: "2026-01-01", period_end: "2028-12-31", rent_psf: 47, escalation_percentage: 0.03 },
-        { period_start: "2029-01-01", period_end: "2031-12-31", rent_psf: 50, escalation_percentage: 0.03 },
-        { period_start: "2032-01-01", period_end: "2035-12-31", rent_psf: 54, escalation_percentage: 0.03 },
-      ],
+      ...snapshot,
+      proposals: [],
+      name: `${analysis.name} - Tenant v1`,
+      rent_schedule: tenantRentSchedule,
       concessions: {
-        ...baseScenario().concessions,
-        abatement_type: "at_commencement",
-        abatement_free_rent_months: 3,
-        abatement_applies_to: "base_only",
+        ...analysis.concessions,
+        abatement_free_rent_months: Math.max(
+          (analysis.concessions?.abatement_free_rent_months ?? 0) + 3,
+          3,
+        ),
       },
     },
   };
@@ -356,8 +364,9 @@ export default function LeaseAnalyzerApp({
                 granularity: "annual",
               },
               notes: "Demo analysis for testing",
-              proposals: demoProposals(),
+              proposals: [],
             };
+            demoAnalysis.proposals = createProposalsFromAnalysis(demoAnalysis);
             setAnalyses([demoAnalysis]);
             storage.save([demoAnalysis]);
           }
@@ -466,8 +475,9 @@ export default function LeaseAnalyzerApp({
                 granularity: "annual",
               },
               notes: "Demo analysis for testing",
-              proposals: demoProposals(),
+              proposals: [],
             };
+            demoAnalysis.proposals = createProposalsFromAnalysis(demoAnalysis);
             setAnalyses([demoAnalysis]);
             setDeals(remoteDeals);
 
@@ -538,8 +548,9 @@ export default function LeaseAnalyzerApp({
                 granularity: "annual",
               },
               notes: "",
-              proposals: demoProposals(),
+              proposals: [],
             };
+            demoAnalysis.proposals = createProposalsFromAnalysis(demoAnalysis);
             setAnalyses([demoAnalysis]);
             setDeals([]);
           }
@@ -656,12 +667,13 @@ export default function LeaseAnalyzerApp({
       };
       
       // Auto-create base proposal - default to "Tenant" side
+      const { proposals: _, ...newAnalysisSnapshot } = newAnalysis;
       const baseProposal: Proposal = {
         id: nanoid(),
         side: "Tenant",
         label: "v1",
         created_at: new Date().toISOString(),
-        meta: { ...newAnalysis }, // Use the actual analysis data, not demo data
+        meta: { ...newAnalysisSnapshot, proposals: [] },
       };
       
       // Add base proposal to the analysis
@@ -869,34 +881,29 @@ export default function LeaseAnalyzerApp({
   }, [reportError]);
 
   const createProposal = (side: ProposalSide) => {
-    // Use selectedAnalysis directly since it's computed from current state
-    // This ensures we always have the latest data
     if (!selectedAnalysis) {
-      console.warn('❌ Cannot create proposal: no analysis selected');
-      console.warn('   selectedId:', selectedId);
-      console.warn('   analyses count:', analyses.length);
-      console.warn('   analyses ids:', analyses.map(a => a.id));
-      console.warn('   pendingNewAnalysisId:', pendingNewAnalysisId);
+      console.warn('Cannot create proposal: no analysis selected');
       return;
     }
-    
-    // Count existing proposals of this side to number the new one
+
     const existingProposalsOfSide = (selectedAnalysis.proposals as Proposal[]).filter(p => p.side === side);
     const versionNumber = existingProposalsOfSide.length + 1;
-    
-    // Create proposal using the actual analysis data, not demo data
+
+    // Snapshot the analysis WITHOUT the proposals array to avoid nested data bloat
+    const { proposals: _, ...analysisSnapshot } = selectedAnalysis;
+
     const p: Proposal = {
       id: nanoid(),
       side,
       label: `${side} v${versionNumber}`,
       created_at: new Date().toISOString(),
       meta: {
-        ...selectedAnalysis, // Use the actual analysis data
-        name: `${selectedAnalysis.name} - ${side} v${versionNumber}`, // Update name to reflect proposal
+        ...analysisSnapshot,
+        proposals: [],
+        name: `${selectedAnalysis.name} - ${side} v${versionNumber}`,
       },
     };
-    
-    console.log('🔧 Creating proposal:', p, 'for analysis:', selectedAnalysis.id);
+
     upsertProposal(selectedAnalysis.id, p);
     setSelectedProposalId(p.id);
   };
