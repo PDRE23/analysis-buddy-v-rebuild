@@ -249,7 +249,7 @@ function buildMonthlyOperating(
 
   const escalateFixed = (base: number, yearIdx: number): number => {
     let escalated = base * Math.pow(1 + escalationValue, yearIdx);
-    if (escalationCap !== undefined) {
+    if (escalationCap !== undefined && escalationCap > 0) {
       const capped = base * Math.pow(1 + escalationCap, yearIdx);
       escalated = Math.min(escalated, capped);
     }
@@ -272,7 +272,7 @@ function buildMonthlyOperating(
         const yearsSinceStart = yearIdx - periodStartIdx;
         let basePsf = base * Math.pow(1 + period.escalation_percentage, periodStartIdx);
         let escalated = basePsf * Math.pow(1 + period.escalation_percentage, yearsSinceStart);
-        if (escalationCap !== undefined) {
+        if (escalationCap !== undefined && escalationCap > 0) {
           const capped = basePsf * Math.pow(1 + escalationCap, yearsSinceStart);
           escalated = Math.min(escalated, capped);
         }
@@ -282,9 +282,11 @@ function buildMonthlyOperating(
     return base;
   };
 
+  const roundPsf = (v: number) => Math.round(v * 100) / 100;
+
   const getEscalatedPsf = (yearIdx: number): number => {
-    if (escalationType === "custom") return escalateCustom(baseOpPsf, yearIdx);
-    return escalateFixed(baseOpPsf, yearIdx);
+    if (escalationType === "custom") return roundPsf(escalateCustom(baseOpPsf, yearIdx));
+    return roundPsf(escalateFixed(baseOpPsf, yearIdx));
   };
 
   const leaseType = scenarioInputs.lease_type ?? "FS";
@@ -299,9 +301,9 @@ function buildMonthlyOperating(
     const escalatedPsf = getEscalatedPsf(yearIdx);
     let monthlyOp: number;
     if (leaseType === "NNN") {
-      monthlyOp = (escalatedPsf * rsf) / 12;
+      monthlyOp = Math.round(escalatedPsf * rsf) / 12;
     } else {
-      monthlyOp = Math.max(0, (escalatedPsf - baseYearOpPsf) * rsf) / 12;
+      monthlyOp = Math.round(Math.max(0, escalatedPsf - baseYearOpPsf) * rsf) / 12;
     }
     result.push(monthlyOp);
   }
