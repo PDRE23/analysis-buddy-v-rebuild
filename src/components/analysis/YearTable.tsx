@@ -7,7 +7,7 @@ const fmtMoney = (v: number | undefined) =>
 
 const fmtPSF = (v: number) => `$${(v || 0).toFixed(2)}`;
 
-export const YearTable = React.memo(function YearTable({ lines, rsf, meta }: { lines: AnnualLine[]; rsf: number; meta?: AnalysisMeta }) {
+export const YearTable = React.memo(function YearTable({ lines, rsf, meta, compact }: { lines: AnnualLine[]; rsf: number; meta?: AnalysisMeta; compact?: boolean }) {
   if (!lines || lines.length === 0) {
     return (
       <div className="overflow-auto border rounded-xl p-4 text-center text-muted-foreground">
@@ -81,8 +81,8 @@ export const YearTable = React.memo(function YearTable({ lines, rsf, meta }: { l
   };
 
   const rows: RowDef[] = [
-    { label: "Base Rent", getValue: r => r.base_rent, getTotal: () => totals.base_rent, show: true },
-    { label: "Operating", getValue: r => r.operating, getTotal: () => totals.operating, show: true },
+    { label: "Base Rent", getValue: r => r.base_rent, getTotal: () => totals.base_rent, show: true, psfRow: { label: "Base Rent $/RSF" } },
+    { label: "Operating", getValue: r => r.operating, getTotal: () => totals.operating, show: true, psfRow: { label: "Operating $/RSF" } },
     { label: "Parking", getValue: r => r.parking || 0, getTotal: () => totals.parking, show: hasParking },
     { label: "Other Recurring", getValue: r => r.other_recurring || 0, getTotal: () => totals.other_recurring, show: hasOtherRecurring },
     {
@@ -111,55 +111,67 @@ export const YearTable = React.memo(function YearTable({ lines, rsf, meta }: { l
     return "";
   };
 
+  const cp = compact ? 'px-1 py-0.5' : 'p-2';
+  const textSize = compact ? 'text-xs' : 'text-sm';
+  const psfSize = compact ? 'text-[10px]' : 'text-xs';
+  const headerMinW = compact ? '' : 'min-w-[160px]';
+  const colMinW = compact ? '' : 'min-w-[100px]';
+  const totalMinW = compact ? '' : 'min-w-[110px]';
+
+  const getCompactYearLabel = (yearIndex: number, year: number): string => {
+    if (!compact) return getYearLabel(yearIndex, year);
+    return `YR ${year}`;
+  };
+
   return (
     <div className="overflow-x-auto border rounded-xl" style={{ maxWidth: '100%' }}>
-      <table className="w-full text-sm">
+      <table className={`w-full ${textSize}`}>
         <thead className="bg-muted/50">
           <tr>
-            <th className="text-left p-2 sticky left-0 bg-muted/50 min-w-[160px]"></th>
+            <th className={`text-left ${cp} sticky left-0 bg-muted/50 ${headerMinW}`}></th>
             {lines.map((r, idx) => (
-              <th key={r.year} className="text-right p-2 whitespace-nowrap min-w-[100px]">
+              <th key={r.year} className={`text-right ${cp} whitespace-nowrap ${colMinW}`}>
                 <div className="flex items-center justify-end gap-1">
-                  {getYearLabel(idx, r.year)}
+                  {getCompactYearLabel(idx, r.year)}
                   {breakEvenYear === r.year && (
-                    <span className="text-xs bg-yellow-200 text-yellow-800 px-1 py-0.5 rounded" title="Break-even year">BE</span>
+                    <span className={`${psfSize} bg-yellow-200 text-yellow-800 px-1 py-0.5 rounded`} title="Break-even year">BE</span>
                   )}
                 </div>
               </th>
             ))}
-            <th className="text-right p-2 whitespace-nowrap min-w-[110px] border-l-2 border-foreground/20 bg-muted/70">Total</th>
+            <th className={`text-right ${cp} whitespace-nowrap ${totalMinW} border-l-2 border-foreground/20 bg-muted/70`}>Total</th>
           </tr>
         </thead>
         <tbody>
           {visibleRows.map((row) => (
             <React.Fragment key={row.label}>
               <tr className={row.isSeparator ? "border-t-2 border-foreground/20 bg-muted/30" : "border-t"}>
-                <td className={`p-2 sticky left-0 bg-background ${row.isBold ? 'font-semibold' : ''} ${row.isSeparator ? 'bg-muted/30' : ''}`}>
+                <td className={`${cp} sticky left-0 bg-background ${row.isBold ? 'font-semibold' : ''} ${row.isSeparator ? 'bg-muted/30' : ''} whitespace-nowrap`}>
                   {row.label}
                 </td>
                 {lines.map((r) => {
                   const val = row.getValue(r);
                   return (
-                    <td key={r.year} className={`p-2 text-right ${cellClass(val, row)}`}>
+                    <td key={r.year} className={`${cp} text-right ${cellClass(val, row)}`}>
                       {val === 0 && !row.isBold ? "–" : fmtMoney(val)}
                     </td>
                   );
                 })}
-                <td className={`p-2 text-right border-l-2 border-foreground/20 bg-muted/10 ${cellClass(row.getTotal(), row)}`}>
+                <td className={`${cp} text-right border-l-2 border-foreground/20 bg-muted/10 ${cellClass(row.getTotal(), row)}`}>
                   {fmtMoney(row.getTotal())}
                 </td>
               </tr>
               {row.psfRow && (
                 <tr className="border-t border-dashed">
-                  <td className="p-2 pl-6 sticky left-0 bg-background text-muted-foreground text-xs italic">
+                  <td className={`${cp} pl-6 sticky left-0 bg-background text-muted-foreground ${psfSize} italic whitespace-nowrap`}>
                     {row.psfRow.label}
                   </td>
                   {lines.map((r) => (
-                    <td key={r.year} className="p-2 text-right text-muted-foreground text-xs">
+                    <td key={r.year} className={`${cp} text-right text-muted-foreground ${psfSize}`}>
                       {fmtPSF(rsf > 0 ? row.getValue(r) / rsf : 0)}
                     </td>
                   ))}
-                  <td className="p-2 text-right border-l-2 border-foreground/20 bg-muted/10 text-muted-foreground text-xs">
+                  <td className={`${cp} text-right border-l-2 border-foreground/20 bg-muted/10 text-muted-foreground ${psfSize}`}>
                     {fmtPSF(rsf > 0 ? row.getTotal() / rsf : 0)}
                   </td>
                 </tr>
@@ -167,16 +179,16 @@ export const YearTable = React.memo(function YearTable({ lines, rsf, meta }: { l
             </React.Fragment>
           ))}
           <tr className="border-t bg-muted/30">
-            <td className="p-2 sticky left-0 bg-muted/30 font-semibold text-muted-foreground">Cumulative</td>
+            <td className={`${cp} sticky left-0 bg-muted/30 font-semibold text-muted-foreground whitespace-nowrap`}>Cumulative</td>
             {lines.map((r, idx) => {
               const cv = cumulativeValues[idx] || 0;
               return (
-                <td key={r.year} className={`p-2 text-right font-medium ${cv < 0 ? 'text-red-600' : 'text-green-700'}`}>
+                <td key={r.year} className={`${cp} text-right font-medium ${cv < 0 ? 'text-red-600' : 'text-green-700'}`}>
                   {fmtMoney(cv)}
                 </td>
               );
             })}
-            <td className={`p-2 text-right border-l-2 border-foreground/20 bg-muted/10 font-medium ${cumulative < 0 ? 'text-red-600' : 'text-green-700'}`}>
+            <td className={`${cp} text-right border-l-2 border-foreground/20 bg-muted/10 font-medium ${cumulative < 0 ? 'text-red-600' : 'text-green-700'}`}>
               {fmtMoney(cumulative)}
             </td>
           </tr>
